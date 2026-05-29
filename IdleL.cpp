@@ -29,8 +29,6 @@ int main(int argc, char** argv)
             return 1;
         }
 
-        Context context;
-
         SDL_Window* window = SDL_CreateWindow("BEngine", 1280, 720,
             SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
         if (!window)
@@ -38,6 +36,8 @@ int main(int argc, char** argv)
             std::cerr << "SDL_CreateWindow Error: " << SDL_GetError() << std::endl;
             return 1;
         }
+
+        Context context(window);
 
         bool running = true;
         while (running)

@@ -132,17 +132,29 @@ void Context::createInstance()
 	VK_CHECK(vkCreateInstance(&createInfo, nullptr, &instance));
 }
 
-Context::Context() 
+void Context::createSurface(SDL_Window* window)
+{
+	if(!SDL_Vulkan_CreateSurface(window, instance, nullptr, &surface)) 
+	{
+		throw std::runtime_error("Failed to create window for the application!");
+	}
+}
+
+Context::Context(SDL_Window* window) 
 {
 	VK_CHECK(volkInitialize());
 	createInstance();
 	volkLoadInstance(instance);
+	createSurface(window);
 	setupDebugMessenger();
 	pickPhysicalDevice();
+	createLogicalDevice();
 }
 
 Context::~Context() 
 {
+	vkDestroyDevice(device, nullptr);
+	vkDestroySurfaceKHR(instance, surface, nullptr);
 	if (enableValidationLayers) 
 	{
 		vkDestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
@@ -219,4 +231,30 @@ void Context::pickPhysicalDevice()
 
 	QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
 	graphicsQueueFamilyIndex = indices.graphicsFamily.value();
+}
+
+void Context::createLogicalDevice() {
+	VkDeviceQueueCreateInfo queueCreateInfo{};
+	queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+	queueCreateInfo.queueFamilyIndex = graphicsQueueFamilyIndex;
+	queueCreateInfo.queueCount = 1;
+
+	float queuePriority = 1.0f;
+	queueCreateInfo.pQueuePriorities = &queuePriority;
+
+	VkPhysicalDeviceFeatures deviceFeatures{};
+
+	VkDeviceCreateInfo createInfo{};
+	createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+	createInfo.pQueueCreateInfos = &queueCreateInfo;
+	createInfo.queueCreateInfoCount = 1;
+	createInfo.pEnabledFeatures = &deviceFeatures;
+	createInfo.enabledExtensionCount = 0;
+
+	if (vkCreateDevice(physicalDevice, &createInfo, nullptr, &device) != VK_SUCCESS) {
+		throw std::runtime_error("failed to create logical device!");
+	}
+
+	volkLoadDevice(device);
+	vkGetDeviceQueue(device, graphicsQueueFamilyIndex, 0, &graphicsQueue);
 }

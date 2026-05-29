@@ -1,10 +1,11 @@
 #pragma once
 #include <Volk/volk.h>
+#include <SDL3/SDL.h>
 
 class Context
 {
 public:
-	Context();
+	Context(SDL_Window* window);
 	~Context();
 	Context(const Context&) = delete;
 	Context& operator = (const Context&) = delete;
@@ -13,11 +14,14 @@ private:
 	VkInstance instance = VK_NULL_HANDLE;
 	VkDebugUtilsMessengerEXT debugMessenger = VK_NULL_HANDLE;
 	VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
-
+	VkQueue graphicsQueue = VK_NULL_HANDLE;
+	VkDevice device = VK_NULL_HANDLE;
 	uint32_t graphicsQueueFamilyIndex = UINT32_MAX;
-
+	VkSurfaceKHR surface = VK_NULL_HANDLE;
 	void createInstance();
 	void setupDebugMessenger();
 	void pickPhysicalDevice();
+	void createLogicalDevice();
+	void createSurface(SDL_Window* window);
 };
 
