@@ -1,4 +1,5 @@
 #include "Context.h"
+#include "VkCheck.h"
 #include "SDL3/SDL_vulkan.h"
 #include <cstdlib>
 #include <iostream>
@@ -7,9 +8,9 @@
 //this is just validation layer, 
 //removes assert in client build
 #ifdef NDEBUG
-const bool enableValidationLayers = false;
+constexpr bool enableValidationLayers = false;
 #else
-const bool enableValidationLayers = true;
+constexpr bool enableValidationLayers = true;
 #endif
 
 const std::vector<const char*> validationLayers =
@@ -17,7 +18,7 @@ const std::vector<const char*> validationLayers =
 	"VK_LAYER_KHRONOS_validation"
 };
 
-bool checkValidationLayerSupport() 
+static bool checkValidationLayerSupport() 
 {
 	uint32_t layerCount;
 	vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
@@ -45,7 +46,7 @@ bool checkValidationLayerSupport()
 
 //beginng of message call back windows specific since linux auto sends to terminal
 //windows sends this to msvc terminal not powershell needs configuration
-std::vector<const char*> getRequiredExtensions() {
+static std::vector<const char*> getRequiredExtensions() {
 	uint32_t SDLExtensionCount = 0;
 	const char* const* SDLExtensions;
 	SDLExtensions = SDL_Vulkan_GetInstanceExtensions(&SDLExtensionCount);
@@ -81,11 +82,7 @@ void Context::setupDebugMessenger()
 	createInfo.pfnUserCallback = debugCallback;
 	createInfo.pUserData = nullptr;
 
-
-	if (vkCreateDebugUtilsMessengerEXT(instance, &createInfo, nullptr, &debugMessenger) != VK_SUCCESS)
-	{ 
-		throw std::runtime_error("Failed to set up debug logger! ");
-	}
+	VK_CHECK(vkCreateDebugUtilsMessengerEXT(instance, &createInfo, nullptr, &debugMessenger));
 }
 
 
@@ -121,19 +118,12 @@ void Context::createInstance()
 	createInfo.enabledExtensionCount = static_cast<uint32_t>(SDLextensions.size());
 	createInfo.ppEnabledExtensionNames = SDLextensions.data();
 
-	VkResult result = vkCreateInstance(&createInfo, nullptr, &instance);
-	if (result != VK_SUCCESS) { std::abort(); }
-	
+	VK_CHECK(vkCreateInstance(&createInfo, nullptr, &instance));
 }
 
 Context::Context() 
 {
-	VkResult result = volkInitialize();
-	if (result != VK_SUCCESS)
-	{
-		std::cout << "Vulkan Error: " << result << std::endl;
-		std::abort();
-	}
+	VK_CHECK(volkInitialize());
 	createInstance();
 	volkLoadInstance(instance);
 	setupDebugMessenger();
