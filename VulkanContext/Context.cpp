@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <vector>
+#include <optional>
 
 //this is just validation layer, 
 //removes assert in client build
@@ -16,6 +17,16 @@ constexpr bool enableValidationLayers = true;
 const std::vector<const char*> validationLayers =
 {
 	"VK_LAYER_KHRONOS_validation"
+};
+
+struct QueueFamilyIndices
+{
+	std::optional<uint32_t> graphicsFamily;
+
+	bool isComplete()
+	{
+		return graphicsFamily.has_value();
+	}
 };
 
 static bool checkValidationLayerSupport() 
@@ -139,6 +150,34 @@ Context::~Context()
 	vkDestroyInstance(instance, nullptr);
 }
 
+QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device)
+{
+	QueueFamilyIndices indices;
+
+	uint32_t queueFamilyCount = 0;
+	vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
+	std::vector<VkQueueFamilyProperties>queueFamilies(queueFamilyCount);
+	vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
+
+	int i = 0;
+	for (const auto& queueFamily : queueFamilies)
+	{
+		if (indices.isComplete())
+		{
+			break;
+		}
+
+		if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT)
+		{
+			indices.graphicsFamily = i;
+		}
+		i++;
+	}
+
+	// Assign index to queue families that could be found
+	return indices;
+}
+
 static bool isDeviceSuitable(VkPhysicalDevice device)
 {
 	VkPhysicalDeviceProperties2 deviceProperties{};
@@ -151,7 +190,7 @@ static bool isDeviceSuitable(VkPhysicalDevice device)
 	vkGetPhysicalDeviceFeatures2(device, &deviceFeatures);
 
 	return (deviceProperties.properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU || deviceProperties.properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU)
-		&& deviceFeatures.features.geometryShader;
+		&& findQueueFamilies(device).isComplete();
 }
 
 void Context::pickPhysicalDevice()
@@ -172,11 +211,12 @@ void Context::pickPhysicalDevice()
 			break;
 		}
 	}
-	
 
 	if (physicalDevice == VK_NULL_HANDLE)
 	{
 		throw std::runtime_error("Failed to find a suitable GPU device.");
 	}
 
+	QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
+	graphicsQueueFamilyIndex = indices.graphicsFamily.value();
 }

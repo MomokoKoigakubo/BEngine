@@ -8,10 +8,13 @@ public:
 	~Context();
 	Context(const Context&) = delete;
 	Context& operator = (const Context&) = delete;
+
 private:
 	VkInstance instance = VK_NULL_HANDLE;
 	VkDebugUtilsMessengerEXT debugMessenger = VK_NULL_HANDLE;
 	VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
+
+	uint32_t graphicsQueueFamilyIndex = UINT32_MAX;
 
 	void createInstance();
 	void setupDebugMessenger();
