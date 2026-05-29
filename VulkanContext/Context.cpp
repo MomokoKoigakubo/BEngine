@@ -127,6 +127,7 @@ Context::Context()
 	createInstance();
 	volkLoadInstance(instance);
 	setupDebugMessenger();
+	pickPhysicalDevice();
 }
 
 Context::~Context() 
@@ -136,4 +137,46 @@ Context::~Context()
 		vkDestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
 	}
 	vkDestroyInstance(instance, nullptr);
+}
+
+static bool isDeviceSuitable(VkPhysicalDevice device)
+{
+	VkPhysicalDeviceProperties2 deviceProperties{};
+	deviceProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+
+	VkPhysicalDeviceFeatures2 deviceFeatures{};
+	deviceFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+
+	vkGetPhysicalDeviceProperties2(device, &deviceProperties);
+	vkGetPhysicalDeviceFeatures2(device, &deviceFeatures);
+
+	return (deviceProperties.properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU || deviceProperties.properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU)
+		&& deviceFeatures.features.geometryShader;
+}
+
+void Context::pickPhysicalDevice()
+{
+	uint32_t deviceCount = 0;
+	vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
+	if (deviceCount == 0) 
+	{
+		throw std::runtime_error("Failed to find GPU with vulkan support.");
+	}
+	std::vector<VkPhysicalDevice>devices(deviceCount);
+	vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
+	for (const auto& device : devices)
+	{
+		if (isDeviceSuitable(device))
+		{
+			physicalDevice = device;
+			break;
+		}
+	}
+	
+
+	if (physicalDevice == VK_NULL_HANDLE)
+	{
+		throw std::runtime_error("Failed to find a suitable GPU device.");
+	}
+
 }
