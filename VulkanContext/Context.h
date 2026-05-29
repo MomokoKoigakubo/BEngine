@@ -11,4 +11,6 @@ public:
 private:
 	VkInstance instance;
 	void createInstance();
+	void setupDebugMessenger();
+	VkDebugUtilsMessengerEXT debugMessenger;
 };
