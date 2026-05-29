@@ -17,6 +17,8 @@ private:
 	VkQueue graphicsQueue = VK_NULL_HANDLE;
 	VkDevice device = VK_NULL_HANDLE;
 	uint32_t graphicsQueueFamilyIndex = UINT32_MAX;
+	uint32_t presentQueueFamilyIndex = UINT32_MAX;
+	VkQueue presentQueue = VK_NULL_HANDLE;
 	VkSurfaceKHR surface = VK_NULL_HANDLE;
 	void createInstance();
 	void setupDebugMessenger();
