@@ -12,7 +12,7 @@ endif()
 project ("IdleL")
 
 # Add source to this project's executable.
-add_executable (IdleL "IdleL.cpp" "IdleL.h" )
+add_executable (IdleL "IdleL.cpp" "IdleL.h"  "BBModel/bbmodel.h" "JsonParser/jparser.h" "JsonParser/jparser.cpp" "BBModel/bbloader.h" "BBModel/bbloader.cpp" "VulkanContext/Context.h" "VulkanContext/Context.cpp")
 
 find_package(Vulkan REQUIRED)
 
@@ -24,6 +24,7 @@ endif()
 
 include_directories(SYSTEM $ENV{VULKAN_SDK}/include)
 find_library(SDL_LIBRARY NAMES SDL3 HINTS "$ENV{VULKAN_SDK}/lib" REQUIRED)
+find_library(SLANG_LIBRARY NAMES slang HINTS "$ENV{VULKAN_SDK}/lib" REQUIRED)
   target_compile_features(IdleL PRIVATE cxx_std_20)
 
   # Volk loads Vulkan at runtime, so we tell the headers not to declare prototypes
@@ -32,9 +33,10 @@ find_library(SDL_LIBRARY NAMES SDL3 HINTS "$ENV{VULKAN_SDK}/lib" REQUIRED)
       VK_USE_PLATFORM_WIN32_KHR
       NOMINMAX
       _USE_MATH_DEFINES
-      _CRT_SECURE_NO_WARNINGS)
+      _CRT_SECURE_NO_WARNINGS
+      SHADER_DIR="${CMAKE_SOURCE_DIR}/shaders")
 
-  target_link_libraries(IdleL PRIVATE ${SDL_LIBRARY})
+  target_link_libraries(IdleL PRIVATE ${SDL_LIBRARY} ${SLANG_LIBRARY})
 
   if(MSVC)
       target_compile_options(IdleL PRIVATE /EHsc)

@@ -1,88 +1,65 @@
-﻿// IdleL.cpp : Defines the entry point for the application.
+// IdleL.cpp : Vulkan engine entry point.
 //
+// Rebuilding the Vulkan side from scratch into clean, RAII-owned classes.
+// The full previous (monolithic) implementation is preserved at:
+//     reference/IdleL_full_reference.cpp
+// Use it only to peek when stuck — the goal is to write each piece yourself.
 
 #define VOLK_IMPLEMENTATION
-#define GLM_FORCE_RADIANS
-#define GLM_FORCE_DEPTH_ZERO_TO_ONE
-#define VMA_IMPLEMENTATION
-  
-
 #include "IdleL.h"
-#include <vulkan/vulkan.h>
-#include <volk/volk.h>
+#include "VulkanContext/Context.h"
+#include <Volk/volk.h>
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>
 #include <iostream>
-#include <vector>
-#include <array>
-#include <string>
-#include <filesystem>
-#include <vma/vk_mem_alloc.h>
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/quaternion.hpp>
-#include "slang/slang.h"
-#include "slang/slang-com-ptr.h"
 
 
-//vulkan 
-#define chk(x)													   \
+
+
+// Aborts with file:line and the failing call if a Vulkan call doesn't return VK_SUCCESS.
+#define chk(x)                                                     \
     do {                                                           \
         VkResult err = x;                                          \
         if (err != VK_SUCCESS) {                                   \
-            std::cerr << "Vulkan error: " << err << std::endl;     \
+            std::cerr << "Vulkan error: " << err                   \
+                      << " at " << __FILE__ << ":" << __LINE__     \
+                      << "  (" << #x << ")" << std::endl;          \
             std::abort();                                          \
         }                                                          \
     } while (0)
 
-
-
-using namespace std;
-
 int main(int argc, char** argv)
 {
-	chk(volkInitialize());
-	VkInstance instance{};
+    if (!SDL_Init(SDL_INIT_VIDEO))
+    {
+        std::cerr << "SDL_Init Error: " << SDL_GetError() << std::endl;
+        return 1;
+    }
 
-	VkApplicationInfo appInfo{
-	.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
-	.pApplicationName = "BEngine",
-	.apiVersion = VK_API_VERSION_1_3
-	};
+    Context context;
 
-	uint32_t instanceExtensionsCount{ 0 };
-	if(SDL_Init(SDL_INIT_VIDEO) == false) {
-		std::cerr << "SDL_Init Error: " << SDL_GetError() << std::endl;
-		std::abort();
-	}
-	char const* const* instanceExtensions{ SDL_Vulkan_GetInstanceExtensions(&instanceExtensionsCount) };
+    SDL_Window* window = SDL_CreateWindow("BEngine", 1280, 720,
+                                          SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
+    if (!window)
+    {
+        std::cerr << "SDL_CreateWindow Error: " << SDL_GetError() << std::endl;
+        return 1;
+    }
 
+    bool running = true;
+    while (running)
+    {
+        SDL_Event event;
+        while (SDL_PollEvent(&event))
+        {
+            if (event.type == SDL_EVENT_QUIT)
+            {
+                running = false;
+            }
+        }
+    }
 
-
-	VkInstanceCreateInfo instanceCI{
-	.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
-	.pApplicationInfo = &appInfo,
-	.enabledExtensionCount = instanceExtensionsCount,
-	.ppEnabledExtensionNames = instanceExtensions,
-	};
-
-	chk(vkCreateInstance(&instanceCI, nullptr, &instance));
-	volkLoadInstance(instance);
-
-
-
-	uint32_t deviceCount{ 0 };
-	chk(vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr));
-	std::vector<VkPhysicalDevice> devices(deviceCount);
-	chk(vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data()));
-
-	uint32_t deviceIndex{ 0 };
-	if (argc > 1) {
-		deviceIndex = std::stoi(argv[1]);
-		assert(deviceIndex < deviceCount);
-	}
-
-	VkPhysicalDeviceProperties2 deviceProperties{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2 };
-	vkGetPhysicalDeviceProperties2(devices[deviceIndex], &deviceProperties);
-	std::cout << "Selected device: " << deviceProperties.properties.deviceName << "\n";
+    SDL_DestroyWindow(window);
+    SDL_Quit();
+    return 0;
 }
