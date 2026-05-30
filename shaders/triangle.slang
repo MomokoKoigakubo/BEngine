@@ -9,11 +9,19 @@ struct VertexOutput {
 	float4 sv_position : SV_position;
 };
 
+struct PushConstants
+{
+	float aspectScaleX;
+};
+[[vk::push_constant]] PushConstants pc;
+
 [shader("vertex")]
 VertexOutput vertMain(uint vid : SV_VertexID) 
 {
 	VertexOutput output;
-	output.sv_position = float4(positions[vid], 0.0, 1.0);
+	float2 pos = positions[vid];
+	pos.x *= pc.aspectScaleX;
+	output.sv_position = float4(pos, 0.0, 1.0);
 	return output;
 }
 

@@ -1,0 +1,14 @@
+# Build output
+out/
+build/
+bin/
+obj/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+
+# Debug artifacts
+validation.log
+Screenshot*.png

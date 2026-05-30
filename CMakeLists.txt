@@ -12,7 +12,7 @@ endif()
 project ("IdleL")
 
 # Add source to this project's executable.
-add_executable (IdleL "IdleL.cpp" "IdleL.h"  "BBModel/bbmodel.h" "JsonParser/jparser.h" "JsonParser/jparser.cpp" "BBModel/bbloader.h" "BBModel/bbloader.cpp" "VulkanContext/Context.h" "VulkanContext/Context.cpp" "VulkanContext/VkCheck.h" "util/fileIO.h" "util/fileIO.cpp")
+add_executable (IdleL "IdleL.cpp" "IdleL.h"  "BBModel/bbmodel.h" "JsonParser/jparser.h" "JsonParser/jparser.cpp" "BBModel/bbloader.h" "BBModel/bbloader.cpp" "VulkanContext/Context.h" "VulkanContext/Context.cpp" "VulkanContext/VkCheck.h" "util/fileIO.h" "util/fileIO.cpp"  "util/vmaImpl.cpp")
 
 find_package(Vulkan REQUIRED)
 

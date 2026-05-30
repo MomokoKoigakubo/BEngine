@@ -20,6 +20,19 @@
         }                                                          \
     } while (0)
 
+// Renders during the Windows modal resize-drag (when the main loop is blocked).
+// drawFrame has its own re-entrancy guard, so reentrant calls here are safe.
+static bool SDLCALL resizeWatcher(void* userdata, SDL_Event* event)
+{
+    if (event->type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED)
+    {
+        Context* ctx = static_cast<Context*>(userdata);
+        ctx->setFrameBufferResized();
+        ctx->drawFrame();
+    }
+    return true;
+}
+
 int main(int argc, char** argv)
 {
     try {
@@ -37,18 +50,29 @@ int main(int argc, char** argv)
             return 1;
         }
 
-        Context context(window);
+        SDL_SetWindowMinimumSize(window, 650, 360);
 
-        bool running = true;
-        while (running)
         {
-            SDL_Event event;
-            while (SDL_PollEvent(&event))
+            Context context(window);
+            SDL_AddEventWatch(resizeWatcher, &context);
+            bool running = true;
+            while (running)
             {
-                if (event.type == SDL_EVENT_QUIT)
+                SDL_Event event;
+                while (SDL_PollEvent(&event))
                 {
-                    running = false;
+                    if (event.type == SDL_EVENT_QUIT)
+                    {
+                        running = false;
+                    }
+
+                    if (event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED)
+                    {
+                        context.setFrameBufferResized();
+                    }
+
                 }
+                context.drawFrame();
             }
         }
 
