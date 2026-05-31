@@ -7,6 +7,8 @@
 #include "Surface.h"
 #include "Device.h"
 #include "Swapchain.h"
+#include "Buffer.h"
+#include "Vertex.h"
 
 class Context
 {
@@ -33,6 +35,7 @@ private:
 	Device device;
 	// Swapchain (RAII - owns swapchain, images, views, format, extent)
 	Swapchain swapchain;
+	Buffer vertexBuffer;
 	// Pipeline
 	VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
 	VkPipeline graphicsPipeline = VK_NULL_HANDLE;

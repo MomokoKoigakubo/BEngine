@@ -16,14 +16,23 @@ namespace {
 	// constants
 	constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
 
+	const std::vector<Vertex> triangleVertices = {
+			{ { 0.0f, -0.5f }, { 1.0f, 0.0f, 0.0f } },  // top    - red
+			{ { 0.5f,  0.5f }, { 0.0f, 1.0f, 0.0f } },  // right  - green
+			{ {-0.5f,  0.5f }, { 0.0f, 0.0f, 1.0f } },  // left   - blue
+	};
 }
 
 Context::Context(SDL_Window* window)
 	: surface(instance.get(), window),
 	  device(instance.get(), surface.get()),
-	  swapchain(device, surface.get(), window)
+	  swapchain(device, surface.get(), window),
+	  vertexBuffer(device.allocator(), sizeof(Vertex) * triangleVertices.size(),
+		  VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VMA_MEMORY_USAGE_AUTO,
+		  VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT)
 {
 	this->window = window;
+	vertexBuffer.upload(triangleVertices.data(), sizeof(Vertex) * triangleVertices.size());
 	createGraphicsPipeline();
 	createCommandPool();
 	createCommandBuffer();
@@ -85,10 +94,15 @@ void Context::createGraphicsPipeline()
 
 	VkPipelineShaderStageCreateInfo shaderStages[] = { vertStageInfo, fragStageInfo };
 
+	auto bindingDescription = Vertex::getBindingDesc();
+	auto attributeDescriptions = Vertex::getAttributeDescriptions();
+
 	VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
 	vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-	vertexInputInfo.vertexBindingDescriptionCount = 0;
-	vertexInputInfo.vertexAttributeDescriptionCount = 0;
+	vertexInputInfo.vertexBindingDescriptionCount = 1;
+	vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
+	vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
+	vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
 
 	VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
 	inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
@@ -268,6 +282,10 @@ void Context::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageI
 
 	vkCmdBeginRendering(commandBuffer, &renderingInfo);
 	vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
+
+	VkBuffer vertexBuffers[] = { vertexBuffer.get() };
+	VkDeviceSize offsets[] = { 0 };
+	vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
 
 	VkViewport viewport{};
 	viewport.x = 0.0f;
