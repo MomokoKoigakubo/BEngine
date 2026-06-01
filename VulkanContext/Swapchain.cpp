@@ -45,11 +45,46 @@ namespace {
 	}
 }
 
+void Swapchain::createDepthResources()
+{
+	VkImageCreateInfo imageInfo{};
+	imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+	imageInfo.imageType = VK_IMAGE_TYPE_2D;
+	imageInfo.extent = { extent_.width, extent_.height, 1 }; //always matchswapchain size
+	imageInfo.mipLevels = 1;
+	imageInfo.arrayLayers = 1;
+	imageInfo.format = depthFormat_;
+	imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+	imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	imageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+	imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+	imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+	VmaAllocationCreateInfo allocInfo{};
+	allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+	allocInfo.flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
+	VK_CHECK(vmaCreateImage(device.allocator(), &imageInfo, &allocInfo,
+		&depthImage_, &depthAllocation_, nullptr));
+
+	VkImageViewCreateInfo viewInfo{};
+	viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+	viewInfo.image = depthImage_;
+	viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+	viewInfo.format = depthFormat_;
+	viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT; //depth
+	viewInfo.subresourceRange.baseMipLevel = 0;
+	viewInfo.subresourceRange.levelCount = 1;
+	viewInfo.subresourceRange.baseArrayLayer = 0;
+	viewInfo.subresourceRange.layerCount = 1;
+	VK_CHECK(vkCreateImageView(device.get(), &viewInfo, nullptr, &depthView_));
+}
+
 Swapchain::Swapchain(Device& device, VkSurfaceKHR surface, SDL_Window* window)
 	: device(device), surface(surface), window(window)
 {
 	createSwapchain();
 	createImageViews();
+	createDepthResources();
 }
 
 Swapchain::~Swapchain()
@@ -71,10 +106,13 @@ void Swapchain::recreate()
 	cleanup();
 	createSwapchain();
 	createImageViews();
+	createDepthResources();
 }
 
 void Swapchain::cleanup()
 {
+	vkDestroyImageView(device.get(), depthView_, nullptr);
+	vmaDestroyImage(device.allocator(), depthImage_, depthAllocation_);
 	for (auto imageView : imageViews_)
 	{
 		vkDestroyImageView(device.get(), imageView, nullptr);

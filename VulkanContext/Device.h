@@ -2,7 +2,7 @@
 #include <Volk/volk.h>
 #include <vma/vk_mem_alloc.h>
 #include <vector>
-
+#include <functional>
 // Result of querying what a physical device + surface support for a swapchain.
 // Public because Context's swapchain creation reads it too.
 struct SwapChainSupportDetails
@@ -11,6 +11,8 @@ struct SwapChainSupportDetails
 	std::vector<VkSurfaceFormatKHR> formats;
 	std::vector<VkPresentModeKHR> presentModes;
 };
+
+class Buffer;
 
 // Owns the physical + logical device, the graphics/present queues, the queue
 // family indices, and the VMA allocator. Built from an instance + surface.
@@ -31,6 +33,8 @@ public:
 	VmaAllocator allocator() const { return allocator_; }
 
 	SwapChainSupportDetails querySwapchainSupport(VkSurfaceKHR surface) const;
+	void uploadToBuffer(Buffer& dst, const void* data, VkDeviceSize size);
+	void immediateSubmit(const std::function<void(VkCommandBuffer)>& record);
 
 private:
 	VkInstance instance = VK_NULL_HANDLE;

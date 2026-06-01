@@ -12,7 +12,30 @@ endif()
 project ("IdleL")
 
 # Add source to this project's executable.
-add_executable (IdleL "IdleL.cpp" "IdleL.h"  "BBModel/bbmodel.h" "JsonParser/jparser.h" "JsonParser/jparser.cpp" "BBModel/bbloader.h" "BBModel/bbloader.cpp" "VulkanContext/Context.h" "VulkanContext/Context.cpp" "VulkanContext/VkCheck.h" "util/fileIO.h" "util/fileIO.cpp"  "util/vmaImpl.cpp" "VulkanContext/Instance.h" "VulkanContext/Instance.cpp" "VulkanContext/Surface.h" "VulkanContext/Surface.cpp" "VulkanContext/Device.h" "VulkanContext/Device.cpp" "VulkanContext/Swapchain.h" "VulkanContext/Swapchain.cpp" "VulkanContext/Buffer.h" "VulkanContext/Buffer.cpp" "VulkanContext/Vertex.h")
+add_executable (IdleL "IdleL.cpp" "IdleL.h"  "BBModel/bbmodel.h" "JsonParser/jparser.h" 
+"JsonParser/jparser.cpp" "BBModel/bbloader.h" "BBModel/bbloader.cpp" "VulkanContext/Context.h" 
+"VulkanContext/Context.cpp" "VulkanContext/VkCheck.h" "util/fileIO.h" "util/fileIO.cpp"  
+"util/vmaImpl.cpp" "VulkanContext/Instance.h" "VulkanContext/Instance.cpp" 
+"VulkanContext/Surface.h" "VulkanContext/Surface.cpp" "VulkanContext/Device.h" 
+"VulkanContext/Device.cpp" "VulkanContext/Swapchain.h" "VulkanContext/Swapchain.cpp" 
+"VulkanContext/Buffer.h" "VulkanContext/Buffer.cpp" "VulkanContext/Vertex.h" "Scene/Camera.h" 
+"util/math/math.h" "Scene/OrbitCamera.cpp" "Scene/OrbitCamera.h" "VulkanContext/Mesh.h" 
+"VulkanContext/Mesh.cpp" "BBModel/cubeBuilder.h" "BBModel/cubeBuilder.cpp" 
+"util/stbImpl.cpp" "third_party/stb_image.h" "VulkanContext/Texture.h" "VulkanContext/Texture.cpp")
+target_include_directories(IdleL PRIVATE ${CMAKE_SOURCE_DIR})
+set(SLANGC "$ENV{VULKAN_SDK}/bin/slangc.exe")
+
+add_custom_command(
+    OUTPUT "${CMAKE_SOURCE_DIR}/shaders/triangle.spv"
+    COMMAND "${SLANGC}" "${CMAKE_SOURCE_DIR}/shaders/triangle.slang"
+    -target spirv -profile spirv_1_5
+    -o "${CMAKE_SOURCE_DIR}/shaders/triangle.spv"
+    DEPENDS "${CMAKE_SOURCE_DIR}/shaders/triangle.slang"
+    COMMENT "Compiling triangle.slang -> triangle.spv"
+)
+
+add_custom_target(shaders DEPENDS "${CMAKE_SOURCE_DIR}/shaders/triangle.spv")
+add_dependencies(IdleL shaders)
 
 find_package(Vulkan REQUIRED)
 
@@ -34,7 +57,8 @@ find_library(SLANG_LIBRARY NAMES slang HINTS "$ENV{VULKAN_SDK}/lib" REQUIRED)
       NOMINMAX
       _USE_MATH_DEFINES
       _CRT_SECURE_NO_WARNINGS
-      SHADER_DIR="${CMAKE_SOURCE_DIR}/shaders")
+      SHADER_DIR="${CMAKE_SOURCE_DIR}/shaders"
+      MODEL_DIR="${CMAKE_SOURCE_DIR}/ModelsForTest")
 
   target_link_libraries(IdleL PRIVATE ${SDL_LIBRARY} ${SLANG_LIBRARY})
 

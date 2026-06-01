@@ -1,3 +1,4 @@
+#include "Buffer.h"
 #include "Device.h"
 #include "VkCheck.h"
 #include <vector>
@@ -213,6 +214,55 @@ void Device::createLogicalDevice()
 	volkLoadDevice(device);
 	vkGetDeviceQueue(device, graphicsQueueFamilyIndex, 0, &graphicsQueue_);
 	vkGetDeviceQueue(device, presentQueueFamilyIndex, 0, &presentQueue_);
+}
+
+void Device::uploadToBuffer(Buffer& dst, const void* data, VkDeviceSize size)
+{
+	Buffer staging(allocator_, size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+		VMA_MEMORY_USAGE_AUTO, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
+	staging.upload(data, size);
+
+	immediateSubmit([&](VkCommandBuffer cmd) {
+		VkBufferCopy copyRegion{};
+		copyRegion.size = size;
+		vkCmdCopyBuffer(cmd, staging.get(), dst.get(), 1, &copyRegion);
+		});
+}
+
+void Device::immediateSubmit(const std::function<void(VkCommandBuffer)>& record)
+{
+	VkCommandPoolCreateInfo poolInfo{};
+	poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+	poolInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+	poolInfo.queueFamilyIndex = graphicsQueueFamilyIndex;
+	VkCommandPool pool;
+	VK_CHECK(vkCreateCommandPool(device, &poolInfo, nullptr, &pool));
+
+	VkCommandBufferAllocateInfo allocInfo{};
+	allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+	allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	allocInfo.commandPool = pool;
+	allocInfo.commandBufferCount = 1;
+	VkCommandBuffer cmd;
+	VK_CHECK(vkAllocateCommandBuffers(device, &allocInfo, &cmd));
+
+	VkCommandBufferBeginInfo beginInfo{};
+	beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+	vkBeginCommandBuffer(cmd, &beginInfo);
+
+	record(cmd);
+
+	vkEndCommandBuffer(cmd);
+
+	VkSubmitInfo submitInfo{};
+	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	submitInfo.commandBufferCount = 1;
+	submitInfo.pCommandBuffers = &cmd;
+	VK_CHECK(vkQueueSubmit(graphicsQueue_, 1, &submitInfo, VK_NULL_HANDLE));
+	vkQueueWaitIdle(graphicsQueue_);
+
+	vkDestroyCommandPool(device, pool, nullptr);
 }
 
 void Device::createAllocator()

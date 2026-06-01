@@ -51,7 +51,7 @@ struct element
 struct group
 {
 	std::string uuid;
-	glm::vec3 origin, rotation;
+	glm::vec3 origin{ 0 }, rotation{ 0 };
 	std::vector<std::string> children;
 };
 

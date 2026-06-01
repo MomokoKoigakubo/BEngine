@@ -55,6 +55,10 @@ int main(int argc, char** argv)
         {
             Context context(window);
             SDL_AddEventWatch(resizeWatcher, &context);
+
+            Uint64 lastTime = SDL_GetTicks();
+            int frameCount = 0;
+
             bool running = true;
             while (running)
             {
@@ -71,8 +75,27 @@ int main(int argc, char** argv)
                         context.setFrameBufferResized();
                     }
 
+                    if (event.type == SDL_EVENT_MOUSE_MOTION)
+                    {
+                        if (event.motion.state & SDL_BUTTON_LMASK)   
+                        {
+                            const float sens = 0.005f;              
+                            context.orbit(event.motion.xrel * sens, -event.motion.yrel * sens);
+                        }
+                    }
                 }
                 context.drawFrame();
+                frameCount++;
+                Uint64 now = SDL_GetTicks();
+                if (now - lastTime >= 1000)         
+                {
+                    float fps = frameCount * 1000.0f / (now - lastTime);
+                    char title[64];
+                    SDL_snprintf(title, sizeof(title), "BEngine - %.1f FPS", fps);
+                    SDL_SetWindowTitle(window, title);
+                    frameCount = 0;
+                    lastTime = now;
+                }
             }
         }
 

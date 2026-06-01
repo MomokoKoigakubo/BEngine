@@ -18,6 +18,24 @@ BBModelParts BBModelLoader::load(const JsonValue& root)
 		parts.elements.push_back(loadElement(std::get<JsonObject>(elem.data)));
 	}
 
+	// groups[] holds group TRANSFORM data (uuid/origin/rotation); the outliner
+	// holds only the hierarchy. Joined by uuid when composing parent transforms.
+	if (obj.count("groups"))
+	{
+		const JsonArray& groupArr = std::get<JsonArray>(obj.at("groups").data);
+		for (const auto& g : groupArr)
+		{
+			const JsonObject& gobj = std::get<JsonObject>(g.data);
+			group grp;
+			grp.uuid = std::get<std::string>(gobj.at("uuid").data);
+			if (gobj.count("origin"))
+				grp.origin = toVec3(std::get<JsonArray>(gobj.at("origin").data));
+			if (gobj.count("rotation"))
+				grp.rotation = toVec3(std::get<JsonArray>(gobj.at("rotation").data));
+			parts.groups.push_back(grp);
+		}
+	}
+
 	const JsonArray& outliner = std::get<JsonArray>(obj.at("outliner").data);
 	for (const auto& node : outliner)
 	{
@@ -66,7 +84,8 @@ element BBModelLoader::loadElement(const JsonObject& obj)
 	std::string type = std::get<std::string>(obj.at("type").data);
 
 	el.origin = toVec3(std::get<JsonArray>(obj.at("origin").data));
-	el.rotation = toVec3(std::get<JsonArray>(obj.at("rotation").data));
+	if (obj.count("rotation"))
+		el.rotation = toVec3(std::get<JsonArray>(obj.at("rotation").data));
 
 	if (type == "cube")
 	{

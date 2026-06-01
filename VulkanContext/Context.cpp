@@ -1,4 +1,7 @@
 #include "../util/fileIO.h"
+#include "../JsonParser/jparser.h"
+#include "../BBModel/bbloader.h"
+#include "../BBModel/cubeBuilder.h"
 #include "Context.h"
 #include "VkCheck.h"
 #include "SDL3/SDL_vulkan.h"
@@ -11,32 +14,57 @@
 #include <limits>
 #include <algorithm>
 #include <fstream>
+#include <memory>
 
 namespace {
 	// constants
 	constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
 
-	const std::vector<Vertex> triangleVertices = {
-			{ { 0.0f, -0.5f }, { 1.0f, 0.0f, 0.0f } },  // top    - red
-			{ { 0.5f,  0.5f }, { 0.0f, 1.0f, 0.0f } },  // right  - green
-			{ {-0.5f,  0.5f }, { 0.0f, 0.0f, 1.0f } },  // left   - blue
+	const std::vector<Vertex> cubeVertices = {
+			{ {-0.5f, -0.5f, -0.5f}, {0,0,0}, {0,0} },  // 0
+			{ { 0.5f, -0.5f, -0.5f}, {0,0,0}, {0,0} },  // 1
+			{ { 0.5f,  0.5f, -0.5f}, {0,0,0}, {0,0} },  // 2
+			{ {-0.5f,  0.5f, -0.5f}, {0,0,0}, {0,0} },  // 3
+			{ {-0.5f, -0.5f,  0.5f}, {0,0,0}, {0,0} },  // 4
+			{ { 0.5f, -0.5f,  0.5f}, {0,0,0}, {0,0} },  // 5
+			{ { 0.5f,  0.5f,  0.5f}, {0,0,0}, {0,0} },  // 6
+			{ {-0.5f,  0.5f,  0.5f}, {0,0,0}, {0,0} },  // 7
+	};
+
+	const std::vector<uint32_t> cubeIndices = {
+			0,3,2, 2,1,0,   // back   (z-)  reversed
+			4,5,6, 6,7,4,   // front  (z+)
+			0,4,7, 7,3,0,   // left   (x-)
+			1,2,6, 6,5,1,   // right  (x+)  reversed
+			7,6,2, 2,3,7,   // top    (y+)  reversed
+			0,1,5, 5,4,0,   // bottom (y-)
 	};
 }
 
 Context::Context(SDL_Window* window)
 	: surface(instance.get(), window),
-	  device(instance.get(), surface.get()),
-	  swapchain(device, surface.get(), window),
-	  vertexBuffer(device.allocator(), sizeof(Vertex) * triangleVertices.size(),
-		  VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VMA_MEMORY_USAGE_AUTO,
-		  VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT)
+	device(instance.get(), surface.get()),
+	swapchain(device, surface.get(), window)
 {
 	this->window = window;
-	vertexBuffer.upload(triangleVertices.data(), sizeof(Vertex) * triangleVertices.size());
-	createGraphicsPipeline();
 	createCommandPool();
+	createGraphicsPipeline();
 	createCommandBuffer();
 	createSyncObjects();
+
+	JsonParser parser;
+	std::string text;
+	parser.ReadFile(MODEL_DIR "/stripper_stage.bbmodel", text);
+	JsonValue root = parser.parse(text);
+
+	BBModelLoader loader;
+	BBModelParts model = loader.load(root);
+	std::vector<Vertex> verts;
+	std::vector<uint32_t> indices;
+	buildModel(model, verts, indices);   // walks groups + elements, applies hierarchy transforms
+	cubeMesh = std::make_unique<Mesh>(device, verts, indices);
+	texture = std::make_unique<Texture>(device, MODEL_DIR "/stripper_stage_blue.png");
+	createDescriptorSet();;
 }
 
 Context::~Context()
@@ -60,6 +88,8 @@ Context::~Context()
 	vkDestroyCommandPool(device.get(), commandPool, nullptr);
 	vkDestroyPipeline(device.get(), graphicsPipeline, nullptr);
 	vkDestroyPipelineLayout(device.get(), pipelineLayout, nullptr);
+	vkDestroyDescriptorPool(device.get(), descriptorPool, nullptr);
+	vkDestroyDescriptorSetLayout(device.get(), descriptorSetLayout, nullptr);
 	// swapchain, device, surface, instance members destroy themselves (reverse order) after this body.
 }
 
@@ -131,7 +161,7 @@ void Context::createGraphicsPipeline()
 	rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
 	rasterizer.lineWidth = 1.0f;
 	rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
-	rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;
+	rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 	rasterizer.depthBiasEnable = VK_FALSE;
 
 	VkPipelineMultisampleStateCreateInfo multisampling{};
@@ -153,11 +183,26 @@ void Context::createGraphicsPipeline()
 	VkPushConstantRange pushConstantRange{};
 	pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
 	pushConstantRange.offset = 0;
-	pushConstantRange.size = sizeof(float);
+	pushConstantRange.size = sizeof(glm::mat4);
+
+	// Descriptor set layout (must exist before the pipeline layout references it)
+	VkDescriptorSetLayoutBinding samplerBinding{};
+	samplerBinding.binding = 0;                                          // matches binding 0 in the shader
+	samplerBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	samplerBinding.descriptorCount = 1;
+	samplerBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;            // the fragment shader samples it
+	samplerBinding.pImmutableSamplers = nullptr;
+
+	VkDescriptorSetLayoutCreateInfo layoutInfo{};
+	layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+	layoutInfo.bindingCount = 1;
+	layoutInfo.pBindings = &samplerBinding;
+	VK_CHECK(vkCreateDescriptorSetLayout(device.get(), &layoutInfo, nullptr, &descriptorSetLayout));
 
 	VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
 	pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-	pipelineLayoutInfo.setLayoutCount = 0;
+	pipelineLayoutInfo.setLayoutCount = 1;
+	pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;
 	pipelineLayoutInfo.pushConstantRangeCount = 1;
 	pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
 
@@ -168,6 +213,15 @@ void Context::createGraphicsPipeline()
 	renderingInfo.colorAttachmentCount = 1;
 	VkFormat colorFormat = swapchain.imageFormat();
 	renderingInfo.pColorAttachmentFormats = &colorFormat;
+	renderingInfo.depthAttachmentFormat = swapchain.depthFormat();
+
+	VkPipelineDepthStencilStateCreateInfo depthStencil{};
+	depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+	depthStencil.depthTestEnable = VK_TRUE;
+	depthStencil.depthWriteEnable = VK_TRUE;
+	depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
+	depthStencil.depthBoundsTestEnable = VK_FALSE;
+	depthStencil.stencilTestEnable = VK_FALSE;
 
 	VkGraphicsPipelineCreateInfo pipelineInfo{};
 	pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
@@ -179,6 +233,7 @@ void Context::createGraphicsPipeline()
 	pipelineInfo.pViewportState = &viewportState;
 	pipelineInfo.pRasterizationState = &rasterizer;
 	pipelineInfo.pMultisampleState = &multisampling;
+	pipelineInfo.pDepthStencilState = &depthStencil;
 	pipelineInfo.pDynamicState = &dynamicState;
 	pipelineInfo.pColorBlendState = &colorBlending;
 	pipelineInfo.layout = pipelineLayout;
@@ -236,6 +291,45 @@ void Context::createSyncObjects()
 	}
 }
 
+void Context::createDescriptorSet()
+{
+	// pool — sized for one combined-image-sampler descriptor, one set
+	VkDescriptorPoolSize poolSize{};
+	poolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	poolSize.descriptorCount = 1;
+
+	VkDescriptorPoolCreateInfo poolInfo{};
+	poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+	poolInfo.poolSizeCount = 1;
+	poolInfo.pPoolSizes = &poolSize;
+	poolInfo.maxSets = 1;
+	VK_CHECK(vkCreateDescriptorPool(device.get(), &poolInfo, nullptr, &descriptorPool));
+
+	// allocate one set with our layout
+	VkDescriptorSetAllocateInfo allocInfo{};
+	allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	allocInfo.descriptorPool = descriptorPool;
+	allocInfo.descriptorSetCount = 1;
+	allocInfo.pSetLayouts = &descriptorSetLayout;
+	VK_CHECK(vkAllocateDescriptorSets(device.get(), &allocInfo, &descriptorSet));
+
+	// update: bind 0 -> this texture's view + sampler
+	VkDescriptorImageInfo imageInfo{};
+	imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	imageInfo.imageView = texture->view();
+	imageInfo.sampler = texture->sampler();
+
+	VkWriteDescriptorSet write{};
+	write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	write.dstSet = descriptorSet;
+	write.dstBinding = 0;
+	write.dstArrayElement = 0;
+	write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	write.descriptorCount = 1;
+	write.pImageInfo = &imageInfo;
+	vkUpdateDescriptorSets(device.get(), 1, &write, 0, nullptr);
+}
+
 void Context::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex)
 {
 	VkCommandBufferBeginInfo beginInfo{};
@@ -257,10 +351,27 @@ void Context::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageI
 	toColorBarrier.subresourceRange.baseArrayLayer = 0;
 	toColorBarrier.subresourceRange.layerCount = 1;
 
+	VkImageMemoryBarrier2 toDepthBarrier{};
+	toDepthBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+	toDepthBarrier.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+	toDepthBarrier.srcAccessMask = 0;
+	toDepthBarrier.dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+	toDepthBarrier.dstAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+	toDepthBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	toDepthBarrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+	toDepthBarrier.image = swapchain.depthImage();
+	toDepthBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+	toDepthBarrier.subresourceRange.baseMipLevel = 0;
+	toDepthBarrier.subresourceRange.levelCount = 1;
+	toDepthBarrier.subresourceRange.baseArrayLayer = 0;
+	toDepthBarrier.subresourceRange.layerCount = 1;
+
+	VkImageMemoryBarrier2 barriers[2] = { toColorBarrier, toDepthBarrier };
+
 	VkDependencyInfo dependencyInfo{};
 	dependencyInfo.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-	dependencyInfo.imageMemoryBarrierCount = 1;
-	dependencyInfo.pImageMemoryBarriers = &toColorBarrier;
+	dependencyInfo.imageMemoryBarrierCount = 2;
+	dependencyInfo.pImageMemoryBarriers = barriers;
 
 	vkCmdPipelineBarrier2(commandBuffer, &dependencyInfo);
 
@@ -272,6 +383,14 @@ void Context::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageI
 	colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 	colorAttachment.clearValue.color = { 0.0f, 0.0f, 0.0f, 1.0f };
 
+	VkRenderingAttachmentInfo depthAttachment{};
+	depthAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+	depthAttachment.imageView = swapchain.depthView();
+	depthAttachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+	depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	depthAttachment.clearValue.depthStencil = { 1.0f, 0 };
+
 	VkRenderingInfo renderingInfo{};
 	renderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
 	renderingInfo.renderArea.offset = { 0,0 };
@@ -279,13 +398,13 @@ void Context::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageI
 	renderingInfo.layerCount = 1;
 	renderingInfo.colorAttachmentCount = 1;
 	renderingInfo.pColorAttachments = &colorAttachment;
+	renderingInfo.pDepthAttachment = &depthAttachment;
 
 	vkCmdBeginRendering(commandBuffer, &renderingInfo);
 	vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
 
-	VkBuffer vertexBuffers[] = { vertexBuffer.get() };
-	VkDeviceSize offsets[] = { 0 };
-	vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+		pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
 
 	VkViewport viewport{};
 	viewport.x = 0.0f;
@@ -301,11 +420,14 @@ void Context::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageI
 	scissor.extent = swapchain.extent();
 	vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
+	float aspect = swapchain.extent().width / (float)swapchain.extent().height;
+	glm::mat4 model = glm::mat4(1.0f);           
+	glm::mat4 view = camera.viewMatrix();
+	glm::mat4 proj = camera.projectionMatrix(aspect);
+	glm::mat4 mvp = proj * view * model;        
 
-	float aspectScaleX = (float)swapchain.extent().height / (float)swapchain.extent().width;
-	vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(float), &aspectScaleX);
-
-	vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+	vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(mvp), &mvp);
+	cubeMesh->draw(commandBuffer);
 
 	vkCmdEndRendering(commandBuffer);
 
@@ -336,6 +458,11 @@ void Context::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageI
 
 void Context::drawFrame()
 {
+
+	int w = 0, h = 0;
+	SDL_GetWindowSizeInPixels(window, &w, &h);
+	if (w == 0 || h == 0 || (SDL_GetWindowFlags(window) & SDL_WINDOW_MINIMIZED)) return;
+
 	vkWaitForFences(device.get(),1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
 
 	// Recreate at the TOP (before acquiring) so THIS frame renders at the current
@@ -402,4 +529,14 @@ void Context::drawFrame()
 	}
 
 	currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
+}
+
+void Context::orbit(float dYaw, float dPitch)
+{
+	camera.yaw += dYaw;
+	camera.pitch += dPitch;
+
+	const float limit = glm::radians(89.0f);
+	if (camera.pitch > limit) camera.pitch = limit;
+	if (camera.pitch < -limit) camera.pitch = -limit;
 }
