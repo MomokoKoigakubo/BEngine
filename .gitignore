@@ -12,3 +12,9 @@ obj/
 # Debug artifacts
 validation.log
 Screenshot*.png
+
+# Test assets — never tracked
+ModelsForTest/
+
+# Personal planning notes — never pushed
+reference/ROADMAP.txt

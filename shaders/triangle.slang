@@ -3,36 +3,77 @@ struct VertexInput
 	[[vk::location(0)]] float3 pos;
 	[[vk::location(1)]] float3 normal;
 	[[vk::location(2)]] float2 uv;
+	[[vk::location(3)]] float texIndex;
 };
 
 struct VertexOutput
 {
 	float4 sv_position : SV_Position;
+	float3 normal : NORMAL;          // world-space (model transform baked in cubeBuilder)
 	float2 uv : TEXCOORD0;
+	nointerpolation float texIndex : TEXCOORD1;
 };
 
 struct PushConstants
 {
 	float4x4 mvp;
+	float time; //seconds > derived pertext
 };
 [[vk::push_constant]] PushConstants pc;
 
-// binding 0 = combined image sampler (matches the descriptor set layout)
-[[vk::binding(0)]] Sampler2D tex;
+// binding 0 = bindless array of combined image samplers
+[[vk::binding(0)]] Sampler2D textures[];
+
+struct FlipbookParam
+{
+	float frameCount;
+	float flipRate;
+};
+[[vk::binding(1)]] StructuredBuffer<FlipbookParam> flipbooks;
 
 [shader("vertex")]
 VertexOutput vertMain(VertexInput input)
 {
 	VertexOutput output;
 	output.sv_position = mul(pc.mvp, float4(input.pos, 1.0));
+	output.normal = input.normal;
 	output.uv = input.uv;
+	output.texIndex = input.texIndex;
 	return output;
 }
 
 [shader("fragment")]
 float4 fragMain(VertexOutput input) : SV_Target
 {
-float4 color = tex.Sample(input.uv);
-if(color.a < 0.1) discard;
-return color;
+	int idx = int(input.texIndex);
+
+	FlipbookParam fb = flipbooks[idx]; 
+	// flipbook: remap V into the current frame's band (flipCount=1 -> unchanged)
+	float2 uv = input.uv;
+	if (fb.frameCount > 1.0)
+	{
+		float frame = floor(fmod(pc.time * fb.flipRate, fb.frameCount));
+		uv.y = (frame + uv.y) / fb.frameCount;
+	}
+
+	float4 albedo = textures[NonUniformResourceIndex(idx)].Sample(uv);
+	if (albedo.a < 0.1) discard;   // alpha cutout
+
+	float3 N = normalize(input.normal);
+
+	// lighting
+	// soft directional "sun", half_Lambert wrap so the shadow side stays gentle.
+	float3 sunDir   = normalize(float3(0.4, 1.0, 0.3));
+	float3 sunColor = float3(1.0, 0.96, 0.86);
+	float  wrap     = dot(N, sunDir) * 0.5 + 0.5;     // 0..1
+	float3 sun      = wrap * sunColor * 0.7;          // <1 so lit faces don't clamp to white
+
+	// hemisphere ambient: warm ground fill below, cool sky fill above. Low floor so shadows read.
+	float  hemi     = N.y * 0.5 + 0.5;
+	float3 ambient  = lerp(float3(0.20, 0.17, 0.16),  // ground
+	                       float3(0.30, 0.34, 0.40),  // sky
+	                       hemi);
+
+	float3 lit = albedo.rgb * (ambient + sun);        // ~0.2 (shadow) .. ~0.9 (lit)
+	return float4(lit, 1.0);
 }
