@@ -185,11 +185,29 @@ void Device::createLogicalDevice()
 		queueCreateInfos.push_back(queueCreateInfo);
 	}
 
+	VkPhysicalDeviceVulkan12Properties vk12props2{};
+	vk12props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES;
+
+	VkPhysicalDeviceProperties2 props2{};
+	props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+	props2.pNext = &vk12props2;
+	vkGetPhysicalDeviceProperties2(physicalDevice, &props2);
+
+	maxBindlessTextures_ = vk12props2.maxDescriptorSetUpdateAfterBindSampledImages;
+
 	VkPhysicalDeviceFeatures deviceFeatures{};
+
+	VkPhysicalDeviceVulkan12Features features12{};
+	features12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+	features12.runtimeDescriptorArray = VK_TRUE;						//unsized array shader
+	features12.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;		//perfrag varying index
+	features12.descriptorBindingPartiallyBound = VK_TRUE;				//optional slot fill
+	features12.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;  //write descriptors after bind
 
 	VkPhysicalDeviceVulkan11Features features11{};
 	features11.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
 	features11.shaderDrawParameters = VK_TRUE;
+	features11.pNext = &features12;
 
 	VkPhysicalDeviceVulkan13Features features13{};
 	features13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;

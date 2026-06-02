@@ -1,6 +1,6 @@
 #pragma once
 #include "bbmodel.h"
-#include "../JsonParser/jparser.h"
+#include "util/json/jparser.h"
 
 class BBModelLoader
 {

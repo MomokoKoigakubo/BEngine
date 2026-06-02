@@ -1,8 +1,7 @@
-#include "../util/fileIO.h"
-#include "../JsonParser/jparser.h"
-#include "../BBModel/bbloader.h"
-#include "../BBModel/cubeBuilder.h"
-#include "Context.h"
+#include "util/fileIO.h"
+#include "Renderer.h"
+#include "Scene/Scene.h"
+#include "Resources/ResourceManager.h"
 #include "VkCheck.h"
 #include "SDL3/SDL_vulkan.h"
 #include <cstdlib>
@@ -20,54 +19,43 @@ namespace {
 	// constants
 	constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
 
-	const std::vector<Vertex> cubeVertices = {
-			{ {-0.5f, -0.5f, -0.5f}, {0,0,0}, {0,0} },  // 0
-			{ { 0.5f, -0.5f, -0.5f}, {0,0,0}, {0,0} },  // 1
-			{ { 0.5f,  0.5f, -0.5f}, {0,0,0}, {0,0} },  // 2
-			{ {-0.5f,  0.5f, -0.5f}, {0,0,0}, {0,0} },  // 3
-			{ {-0.5f, -0.5f,  0.5f}, {0,0,0}, {0,0} },  // 4
-			{ { 0.5f, -0.5f,  0.5f}, {0,0,0}, {0,0} },  // 5
-			{ { 0.5f,  0.5f,  0.5f}, {0,0,0}, {0,0} },  // 6
-			{ {-0.5f,  0.5f,  0.5f}, {0,0,0}, {0,0} },  // 7
-	};
-
-	const std::vector<uint32_t> cubeIndices = {
-			0,3,2, 2,1,0,   // back   (z-)  reversed
-			4,5,6, 6,7,4,   // front  (z+)
-			0,4,7, 7,3,0,   // left   (x-)
-			1,2,6, 6,5,1,   // right  (x+)  reversed
-			7,6,2, 2,3,7,   // top    (y+)  reversed
-			0,1,5, 5,4,0,   // bottom (y-)
+	struct PushConstants
+	{
+		glm::mat4 mvp;
+		float time; //seconds > shader derives the flipbook from from here
 	};
 }
 
-Context::Context(SDL_Window* window)
+Renderer::Renderer(SDL_Window* window)
 	: surface(instance.get(), window),
 	device(instance.get(), surface.get()),
 	swapchain(device, surface.get(), window)
 {
 	this->window = window;
 	createCommandPool();
+
+	maxTextures = std::min(4096u, device.maxBindlessTextures());
+
+	flipbookParams.assign(maxTextures, FlipbookParam{});
+	flipbookBuffer = std::make_unique<Buffer>(
+		device.allocator(),
+		sizeof(FlipbookParam) * maxTextures,
+		VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+		VMA_MEMORY_USAGE_AUTO,
+		VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
+
+	flipbookBuffer->upload(flipbookParams.data(), sizeof(FlipbookParam) * maxTextures);
+
+	createDescriptorSetLayout();
+	createPipelineLayout();
 	createGraphicsPipeline();
 	createCommandBuffer();
 	createSyncObjects();
 
-	JsonParser parser;
-	std::string text;
-	parser.ReadFile(MODEL_DIR "/stripper_stage.bbmodel", text);
-	JsonValue root = parser.parse(text);
-
-	BBModelLoader loader;
-	BBModelParts model = loader.load(root);
-	std::vector<Vertex> verts;
-	std::vector<uint32_t> indices;
-	buildModel(model, verts, indices);   // walks groups + elements, applies hierarchy transforms
-	cubeMesh = std::make_unique<Mesh>(device, verts, indices);
-	texture = std::make_unique<Texture>(device, MODEL_DIR "/stripper_stage_blue.png");
-	createDescriptorSet();;
+	createDescriptorSet();   // pool + empty bindless set; ResourceManager fills the slots
 }
 
-Context::~Context()
+Renderer::~Renderer()
 {
 	vkDeviceWaitIdle(device.get());
 	for (auto semaphore : renderFinishedSemaphores)
@@ -93,7 +81,7 @@ Context::~Context()
 	// swapchain, device, surface, instance members destroy themselves (reverse order) after this body.
 }
 
-VkShaderModule Context::createShaderModule(const std::vector<char>& code)
+VkShaderModule Renderer::createShaderModule(const std::vector<char>& code)
 {
 	VkShaderModuleCreateInfo createInfo{};
 	createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
@@ -105,7 +93,63 @@ VkShaderModule Context::createShaderModule(const std::vector<char>& code)
 	return shaderModule;
 }
 
-void Context::createGraphicsPipeline()
+void Renderer::createDescriptorSetLayout()
+{
+	// bindless: binding 0 = array of combined image samplers (partially bound + update-after-bind)
+	VkDescriptorSetLayoutBinding samplerBinding{};
+	samplerBinding.binding = 0;
+	samplerBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	samplerBinding.descriptorCount = maxTextures;
+	samplerBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+	samplerBinding.pImmutableSamplers = nullptr;
+
+	VkDescriptorSetLayoutBinding flipbookBinding{};
+	flipbookBinding.binding = 1;
+	flipbookBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	flipbookBinding.descriptorCount = 1;
+	flipbookBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+	VkDescriptorSetLayoutBinding bindings[2] = { samplerBinding, flipbookBinding };
+
+	VkDescriptorBindingFlags flags[2] =
+	{
+		VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
+		0
+	};
+
+
+	VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsInfo{};
+	bindingFlagsInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
+	bindingFlagsInfo.bindingCount = 2;
+	bindingFlagsInfo.pBindingFlags = flags;
+
+
+	VkDescriptorSetLayoutCreateInfo layoutInfo{};
+	layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+	layoutInfo.bindingCount = 2;
+	layoutInfo.pBindings = bindings;
+	layoutInfo.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
+	layoutInfo.pNext = &bindingFlagsInfo;
+	VK_CHECK(vkCreateDescriptorSetLayout(device.get(), &layoutInfo, nullptr, &descriptorSetLayout));
+}
+
+void Renderer::createPipelineLayout()
+{
+	VkPushConstantRange pushConstantRange{};
+	pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;  // frag reads flipbook
+	pushConstantRange.offset = 0;
+	pushConstantRange.size = sizeof(PushConstants);
+
+	VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+	pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+	pipelineLayoutInfo.setLayoutCount = 1;
+	pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;
+	pipelineLayoutInfo.pushConstantRangeCount = 1;
+	pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
+	VK_CHECK(vkCreatePipelineLayout(device.get(), &pipelineLayoutInfo, nullptr, &pipelineLayout));
+}
+
+void Renderer::createGraphicsPipeline()
 {
 	auto shaderCode = fileio::readBinary(SHADER_DIR "/triangle.spv");
 	VkShaderModule shaderModule = createShaderModule(shaderCode);
@@ -180,34 +224,6 @@ void Context::createGraphicsPipeline()
 	colorBlending.attachmentCount = 1;
 	colorBlending.pAttachments = &colorBlendAttachment;
 
-	VkPushConstantRange pushConstantRange{};
-	pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-	pushConstantRange.offset = 0;
-	pushConstantRange.size = sizeof(glm::mat4);
-
-	// Descriptor set layout (must exist before the pipeline layout references it)
-	VkDescriptorSetLayoutBinding samplerBinding{};
-	samplerBinding.binding = 0;                                          // matches binding 0 in the shader
-	samplerBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-	samplerBinding.descriptorCount = 1;
-	samplerBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;            // the fragment shader samples it
-	samplerBinding.pImmutableSamplers = nullptr;
-
-	VkDescriptorSetLayoutCreateInfo layoutInfo{};
-	layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-	layoutInfo.bindingCount = 1;
-	layoutInfo.pBindings = &samplerBinding;
-	VK_CHECK(vkCreateDescriptorSetLayout(device.get(), &layoutInfo, nullptr, &descriptorSetLayout));
-
-	VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
-	pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-	pipelineLayoutInfo.setLayoutCount = 1;
-	pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;
-	pipelineLayoutInfo.pushConstantRangeCount = 1;
-	pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
-
-	VK_CHECK(vkCreatePipelineLayout(device.get(),&pipelineLayoutInfo, nullptr, &pipelineLayout));
-
 	VkPipelineRenderingCreateInfo renderingInfo{};
 	renderingInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
 	renderingInfo.colorAttachmentCount = 1;
@@ -244,7 +260,7 @@ void Context::createGraphicsPipeline()
 	vkDestroyShaderModule(device.get(),shaderModule, nullptr);
 }
 
-void Context::createCommandPool()
+void Renderer::createCommandPool()
 {
 	VkCommandPoolCreateInfo poolInfo{};
 	poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -254,7 +270,7 @@ void Context::createCommandPool()
 	VK_CHECK(vkCreateCommandPool(device.get(),&poolInfo, nullptr, &commandPool));
 }
 
-void Context::createCommandBuffer()
+void Renderer::createCommandBuffer()
 {
 	commandBuffers.resize(MAX_FRAMES_IN_FLIGHT);
 
@@ -267,7 +283,7 @@ void Context::createCommandBuffer()
 	VK_CHECK(vkAllocateCommandBuffers(device.get(),&allocInfo, commandBuffers.data()));
 }
 
-void Context::createSyncObjects()
+void Renderer::createSyncObjects()
 {
 	VkSemaphoreCreateInfo semaphoreInfo{};
 	semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
@@ -291,17 +307,20 @@ void Context::createSyncObjects()
 	}
 }
 
-void Context::createDescriptorSet()
+void Renderer::createDescriptorSet()
 {
-	// pool — sized for one combined-image-sampler descriptor, one set
-	VkDescriptorPoolSize poolSize{};
-	poolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-	poolSize.descriptorCount = 1;
+	// pool — one combined-image-sampler array (bindless) + one storage buffer (flipbook params)
+	VkDescriptorPoolSize poolSizes[2]{};
+	poolSizes[0].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	poolSizes[0].descriptorCount = maxTextures;
+	poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	poolSizes[1].descriptorCount = 1;
 
 	VkDescriptorPoolCreateInfo poolInfo{};
 	poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-	poolInfo.poolSizeCount = 1;
-	poolInfo.pPoolSizes = &poolSize;
+	poolInfo.poolSizeCount = 2;
+	poolInfo.pPoolSizes = poolSizes;
+	poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
 	poolInfo.maxSets = 1;
 	VK_CHECK(vkCreateDescriptorPool(device.get(), &poolInfo, nullptr, &descriptorPool));
 
@@ -313,24 +332,54 @@ void Context::createDescriptorSet()
 	allocInfo.pSetLayouts = &descriptorSetLayout;
 	VK_CHECK(vkAllocateDescriptorSets(device.get(), &allocInfo, &descriptorSet));
 
-	// update: bind 0 -> this texture's view + sampler
+	// binding 1 -> the flipbook params buffer (written once; the handle never changes,
+	// only its contents via upload(), so no update-after-bind needed here)
+	VkDescriptorBufferInfo bufInfo{};
+	bufInfo.buffer = flipbookBuffer->get();
+	bufInfo.offset = 0;
+	bufInfo.range  = VK_WHOLE_SIZE;
+
+	VkWriteDescriptorSet flipbookWrite{};
+	flipbookWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	flipbookWrite.dstSet = descriptorSet;
+	flipbookWrite.dstBinding = 1;
+	flipbookWrite.dstArrayElement = 0;
+	flipbookWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	flipbookWrite.descriptorCount = 1;
+	flipbookWrite.pBufferInfo = &bufInfo;
+	vkUpdateDescriptorSets(device.get(), 1, &flipbookWrite, 0, nullptr);
+}
+
+uint32_t Renderer::registerBindlessTexture(VkImageView view, VkSampler sampler)
+{
+	uint32_t slot = nextTextureSlot++;
+
 	VkDescriptorImageInfo imageInfo{};
 	imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	imageInfo.imageView = texture->view();
-	imageInfo.sampler = texture->sampler();
+	imageInfo.imageView = view;
+	imageInfo.sampler = sampler;
 
 	VkWriteDescriptorSet write{};
 	write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 	write.dstSet = descriptorSet;
 	write.dstBinding = 0;
-	write.dstArrayElement = 0;
+	write.dstArrayElement = slot;
 	write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 	write.descriptorCount = 1;
 	write.pImageInfo = &imageInfo;
 	vkUpdateDescriptorSets(device.get(), 1, &write, 0, nullptr);
+
+	return slot;
 }
 
-void Context::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex)
+void Renderer::setFlipbook(uint32_t slot, float frameCount, float flipRate)
+{
+	flipbookParams[slot] = { frameCount, flipRate };
+	flipbookBuffer->upload(flipbookParams.data(),
+		sizeof(FlipbookParam) * flipbookParams.size());
+}
+
+void Renderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex, Scene& scene, ResourceManager& resources)
 {
 	VkCommandBufferBeginInfo beginInfo{};
 	beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -421,13 +470,18 @@ void Context::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageI
 	vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
 	float aspect = swapchain.extent().width / (float)swapchain.extent().height;
-	glm::mat4 model = glm::mat4(1.0f);           
-	glm::mat4 view = camera.viewMatrix();
-	glm::mat4 proj = camera.projectionMatrix(aspect);
-	glm::mat4 mvp = proj * view * model;        
+	glm::mat4 view = scene.camera.viewMatrix();
+	glm::mat4 proj = scene.camera.projectionMatrix(aspect);
 
-	vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(mvp), &mvp);
-	cubeMesh->draw(commandBuffer);
+	for (const Renderable& r : scene.getRenderables())
+	{
+		PushConstants pc{};
+		pc.mvp = proj * view * r.transform;
+		pc.time = scene.time();
+		vkCmdPushConstants(commandBuffer, pipelineLayout,
+			VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
+		resources.getMesh(r.mesh).draw(commandBuffer);
+	}
 
 	vkCmdEndRendering(commandBuffer);
 
@@ -456,7 +510,7 @@ void Context::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageI
 	VK_CHECK(vkEndCommandBuffer(commandBuffer));
 }
 
-void Context::drawFrame()
+void Renderer::drawFrame(Scene& scene, ResourceManager& resources)
 {
 
 	int w = 0, h = 0;
@@ -486,7 +540,7 @@ void Context::drawFrame()
 	vkResetFences(device.get(),1, &inFlightFences[currentFrame]);
 
 	vkResetCommandBuffer(commandBuffers[currentFrame], 0);
-	recordCommandBuffer(commandBuffers[currentFrame], imageIndex);
+	recordCommandBuffer(commandBuffers[currentFrame], imageIndex, scene, resources);
 
 	VkSemaphoreSubmitInfo waitInfo{};
 	waitInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
@@ -531,12 +585,7 @@ void Context::drawFrame()
 	currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 }
 
-void Context::orbit(float dYaw, float dPitch)
+void Renderer::waitIdle()
 {
-	camera.yaw += dYaw;
-	camera.pitch += dPitch;
-
-	const float limit = glm::radians(89.0f);
-	if (camera.pitch > limit) camera.pitch = limit;
-	if (camera.pitch < -limit) camera.pitch = -limit;
+	vkDeviceWaitIdle(device.get());
 }

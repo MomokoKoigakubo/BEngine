@@ -12,6 +12,30 @@ BBModelParts BBModelLoader::load(const JsonValue& root)
 	parts.res.width  = (int)std::get<double>(res.at("width").data);
 	parts.res.height = (int)std::get<double>(res.at("height").data);
 
+	// euler rotation order is format-dependent: bedrock = ZYX, others (free/java) = XYZ
+	if (obj.count("meta"))
+	{
+		const JsonObject& meta = std::get<JsonObject>(obj.at("meta").data);
+		if (meta.count("model_format"))
+			parts.eulerXYZ = (std::get<std::string>(meta.at("model_format").data) != "bedrock");
+	}
+
+	if (obj.count("textures"))
+	{
+		const JsonArray& texArr = std::get<JsonArray>(obj.at("textures").data);
+		for (const auto& t : texArr)
+		{
+			const JsonObject& tobj = std::get<JsonObject>(t.data);
+			TextureMeta tm;
+			if (tobj.count("name"))             tm.name = std::get<std::string>(tobj.at("name").data);
+			if (tobj.count("uv_width"))         tm.uvWidth = (int)std::get<double>(tobj.at("uv_width").data);
+			if (tobj.count("uv_height"))        tm.uvHeight = (int)std::get<double>(tobj.at("uv_height").data);
+			if (tobj.count("frame_time"))       tm.frameTime = (float)std::get<double>(tobj.at("frame_time").data);
+			if (tobj.count("frame_order_type")) tm.flipType = std::get<std::string>(tobj.at("frame_order_type").data);
+			parts.textures.push_back(tm);
+		}
+	}
+
 	const JsonArray& elements = std::get<JsonArray>(obj.at("elements").data);
 	for (const auto& elem : elements)
 	{
@@ -94,12 +118,12 @@ element BBModelLoader::loadElement(const JsonObject& obj)
 		el.to = toVec3(std::get<JsonArray>(obj.at("to").data));
 
 		const JsonObject& faces = std::get<JsonObject>(obj.at("faces").data);
-		el.north = loadCubeFace(std::get<JsonObject>(faces.at("north").data));
-		el.south = loadCubeFace(std::get<JsonObject>(faces.at("south").data));
-		el.east  = loadCubeFace(std::get<JsonObject>(faces.at("east").data));
-		el.west  = loadCubeFace(std::get<JsonObject>(faces.at("west").data));
-		el.up    = loadCubeFace(std::get<JsonObject>(faces.at("up").data));
-		el.down  = loadCubeFace(std::get<JsonObject>(faces.at("down").data));
+		if(faces.count("north")) el.north = loadCubeFace(std::get<JsonObject>(faces.at("north").data));
+		if(faces.count("south")) el.south = loadCubeFace(std::get<JsonObject>(faces.at("south").data));
+		if(faces.count("east"))  el.east  =  loadCubeFace(std::get<JsonObject>(faces.at("east").data));
+		if(faces.count("west"))  el.west  =  loadCubeFace(std::get<JsonObject>(faces.at("west").data));
+		if(faces.count("up"))    el.up    =    loadCubeFace(std::get<JsonObject>(faces.at("up").data));
+		if(faces.count("down"))  el.down  =  loadCubeFace(std::get<JsonObject>(faces.at("down").data));
 	}
 	else if(type == "mesh")
 	{
@@ -144,6 +168,7 @@ CubeFace BBModelLoader::loadCubeFace(const JsonObject& faceObj)
 		std::holds_alternative<double>(faceObj.at("rotation").data)) {
 		face.rotation = (int)std::get<double>(faceObj.at("rotation").data);
 	}
+	face.present = true;
 	return face;
 }
 
@@ -193,18 +218,3 @@ OutlinerNode BBModelLoader::loadOutlinerNode(const JsonObject& node)
 
 	return result;
 }
-/* just to see the data
-struct CubeFace
-{
-	float u0, v0, u1, v1;
-	int texture = -1;
-	int rotation = 0;
-};
-
-struct MeshFace
-{
-	std::vector<std::string> vertices;
-	std::map<std::string, glm::vec2> uv;
-	int texture = -1;
-};
-*/

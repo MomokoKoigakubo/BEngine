@@ -14,4 +14,6 @@ public:
 
 	glm::mat4 viewMatrix() const override;
 	glm::mat4 projectionMatrix(float aspect) const override;
+
+	void orbit(float dYaw, float dPitch);   // adjust yaw/pitch, clamped near the poles
 };

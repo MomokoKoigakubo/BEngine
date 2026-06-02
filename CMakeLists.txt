@@ -12,16 +12,25 @@ endif()
 project ("IdleL")
 
 # Add source to this project's executable.
-add_executable (IdleL "IdleL.cpp" "IdleL.h"  "BBModel/bbmodel.h" "JsonParser/jparser.h" 
-"JsonParser/jparser.cpp" "BBModel/bbloader.h" "BBModel/bbloader.cpp" "VulkanContext/Context.h" 
-"VulkanContext/Context.cpp" "VulkanContext/VkCheck.h" "util/fileIO.h" "util/fileIO.cpp"  
-"util/vmaImpl.cpp" "VulkanContext/Instance.h" "VulkanContext/Instance.cpp" 
-"VulkanContext/Surface.h" "VulkanContext/Surface.cpp" "VulkanContext/Device.h" 
-"VulkanContext/Device.cpp" "VulkanContext/Swapchain.h" "VulkanContext/Swapchain.cpp" 
-"VulkanContext/Buffer.h" "VulkanContext/Buffer.cpp" "VulkanContext/Vertex.h" "Scene/Camera.h" 
-"util/math/math.h" "Scene/OrbitCamera.cpp" "Scene/OrbitCamera.h" "VulkanContext/Mesh.h" 
-"VulkanContext/Mesh.cpp" "BBModel/cubeBuilder.h" "BBModel/cubeBuilder.cpp" 
-"util/stbImpl.cpp" "third_party/stb_image.h" "VulkanContext/Texture.h" "VulkanContext/Texture.cpp")
+add_executable (IdleL "main.cpp"
+# Renderer (Vulkan)
+"Renderer/Renderer.h" "Renderer/Renderer.cpp" "Renderer/VkCheck.h"
+"Renderer/Instance.h" "Renderer/Instance.cpp" "Renderer/Surface.h" "Renderer/Surface.cpp"
+"Renderer/Device.h" "Renderer/Device.cpp" "Renderer/Swapchain.h" "Renderer/Swapchain.cpp"
+"Renderer/Buffer.h" "Renderer/Buffer.cpp" "Renderer/Vertex.h"
+# Resources
+"Resources/Mesh.h" "Resources/Mesh.cpp" "Resources/Texture.h" "Resources/Texture.cpp"
+# Scene
+"Scene/Camera.h" "Scene/OrbitCamera.h" "Scene/OrbitCamera.cpp" "Scene/Scene.h"
+# Assets
+"Assets/bbmodel.h" "Assets/bbloader.h" "Assets/bbloader.cpp"
+"Assets/cubeBuilder.h" "Assets/cubeBuilder.cpp"
+# util (foundation) / third_party
+"util/math/math.h"
+"util/json/jparser.h" "util/json/jparser.cpp"
+"util/fileIO.h" "util/fileIO.cpp" "util/vmaImpl.cpp" "util/stbImpl.cpp"
+"util/third_party/stb_image.h"
+"Resources/Handles.h" "Resources/ResourceManager.h" "Resources/ResourceManager.cpp" "App/Application.h" "App/Application.cpp")
 target_include_directories(IdleL PRIVATE ${CMAKE_SOURCE_DIR})
 set(SLANGC "$ENV{VULKAN_SDK}/bin/slangc.exe")
 

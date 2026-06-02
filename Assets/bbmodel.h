@@ -10,6 +10,14 @@ struct resolution
 	int width, height;
 };
 
+struct TextureMeta
+{
+	int uvWidth = 16, uvHeight = 16;
+	float frameTime = 1.0f;
+	std::string flipType;
+	std::string name;
+};
+
 struct OutlinerNode
 {
 	std::string uuid;
@@ -24,6 +32,7 @@ struct CubeFace
 	float u0, v0, u1, v1;
 	int texture = -1;
 	int rotation = 0;
+	bool present = false;
 };
 
 struct MeshFace 
@@ -55,10 +64,12 @@ struct group
 	std::vector<std::string> children;
 };
 
-struct BBModelParts 
+struct BBModelParts
 {
 	resolution res;
 	std::vector<element> elements;
 	std::vector<group> groups;
 	std::vector<OutlinerNode> outliner;
+	bool eulerXYZ = false;   // euler rotation order: false=ZYX (bedrock), true=XYZ (free/java)
+	std::vector<TextureMeta> textures;
 };

@@ -4,7 +4,7 @@
 #include <vector>
 #include <functional>
 // Result of querying what a physical device + surface support for a swapchain.
-// Public because Context's swapchain creation reads it too.
+// Public because the Renderer's swapchain creation reads it too.
 struct SwapChainSupportDetails
 {
 	VkSurfaceCapabilitiesKHR capabilities;
@@ -31,6 +31,7 @@ public:
 	uint32_t graphicsFamily() const { return graphicsQueueFamilyIndex; }
 	uint32_t presentFamily() const { return presentQueueFamilyIndex; }
 	VmaAllocator allocator() const { return allocator_; }
+	uint32_t maxBindlessTextures() const { return maxBindlessTextures_; }
 
 	SwapChainSupportDetails querySwapchainSupport(VkSurfaceKHR surface) const;
 	void uploadToBuffer(Buffer& dst, const void* data, VkDeviceSize size);
@@ -47,6 +48,7 @@ private:
 	uint32_t graphicsQueueFamilyIndex = UINT32_MAX;
 	uint32_t presentQueueFamilyIndex = UINT32_MAX;
 	VmaAllocator allocator_ = VK_NULL_HANDLE;
+	uint32_t maxBindlessTextures_ = 0;
 
 	void pickPhysicalDevice();
 	void createLogicalDevice();

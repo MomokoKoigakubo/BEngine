@@ -1,6 +1,7 @@
 #include <fstream>
 #include <string>
 #include <cctype>
+#include <stdexcept>
 #include "jparser.h"
 
 void JsonParser::ReadFile(const std::string& filePath, std::string& output) {
@@ -21,9 +22,9 @@ JsonValue JsonParser::parse(const std::string& text)
 	return parseValue();
 }
 
-char JsonParser::peek() 
+char JsonParser::peek()
 {
-	return(*src)[i];
+	return i < src->size() ? (*src)[i] : '\0';   // bounds-safe: '\0' at EOF
 }
 
 char JsonParser::next() 
@@ -117,6 +118,8 @@ JsonValue JsonParser::parseArray()
 		skipWhiteSpace();
 		if (peek() == ',') { next(); continue; }	// more elements coming
 		if (peek() == ']') { next(); break; }		// end of array
+		throw std::runtime_error("parseArray: expected ',' or ']' at pos " +
+			std::to_string(i) + " got '" + std::string(1, peek()) + "' near: " + src->substr(i, 40));
 	}
 	return JsonValue{ arr };
 }
@@ -139,6 +142,8 @@ JsonValue JsonParser::parseObject()
 		skipWhiteSpace();
 		if (peek() == ',') { next(); continue; }	// more pairs coming
 		if (peek() == '}') { next(); break; }		// end of object
+		throw std::runtime_error("parseObject: expected ',' or '}' after key '" + key +
+			"' at pos " + std::to_string(i) + " got '" + std::string(1, peek()) + "' near: " + src->substr(i, 40));
 	}
 	return JsonValue{ obj };
 }

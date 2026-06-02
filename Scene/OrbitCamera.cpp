@@ -15,3 +15,13 @@ glm::mat4 OrbitCamera::projectionMatrix(float aspect) const
 	proj[1][1] *= -1; //yflip
 	return proj;
 }
+
+void OrbitCamera::orbit(float dYaw, float dPitch)
+{
+	yaw   += dYaw;
+	pitch += dPitch;
+
+	const float limit = glm::radians(89.0f);   // don't flip over the poles
+	if (pitch >  limit) pitch =  limit;
+	if (pitch < -limit) pitch = -limit;
+}

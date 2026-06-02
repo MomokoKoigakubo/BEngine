@@ -1,9 +1,9 @@
 #pragma once
 #include <Volk/volk.h>
 #include <vector>
-#include "Buffer.h"
-#include "Vertex.h"
-#include "Device.h"
+#include "Renderer/Buffer.h"
+#include "Renderer/Vertex.h"
+#include "Renderer/Device.h"
 
 class Mesh
 {
