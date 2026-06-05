@@ -35,7 +35,7 @@ class ComponentPool<T> : IComponentPool
     }
 
     // ref return preserves the C++ `T&` so systems mutate the stored component in place
-    // (not a copy). Invalidated by a subsequent Add/Remove resize — same caveat as a C++ vector ref.
+    // (not a copy). invalidated by a later Add/Remove resize, same caveat as a C++ vector ref.
     public ref T Get(Entity e) => ref CollectionsMarshal.AsSpan(components)[(int)sparse[(int)e.Index]];
 
     public void Remove(Entity e)

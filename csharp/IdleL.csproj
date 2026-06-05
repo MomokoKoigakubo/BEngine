@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -18,10 +18,27 @@
     <PackageReference Include="StbImageSharp" Version="2.30.15" />
   </ItemGroup>
 
-  <!-- Shader is built offline by slangc (slangc triangle.slang -target spirv -profile spirv_1_5).
-       The .spv is committed; copy it next to the binary so the renderer can load it. -->
+  <!-- Recompile the Slang shader to SPIR-V on build when the Vulkan SDK is present (incremental:
+       only when the .slang is newer). Falls back to the committed .spv if slangc isn't available. -->
+  <Target Name="CompileShaders" BeforeTargets="BeforeBuild" Inputs="..\shaders\triangle.slang;..\shaders\cull.slang;..\shaders\hiz.slang;..\shaders\static.slang" Outputs="..\shaders\triangle.spv;..\shaders\cull.spv;..\shaders\hiz.spv;..\shaders\static.spv" Condition="'$(VULKAN_SDK)' != '' And Exists('$(VULKAN_SDK)\Bin\slangc.exe')">
+    <Exec Command="&quot;$(VULKAN_SDK)\Bin\slangc.exe&quot; &quot;$(MSBuildProjectDirectory)\..\shaders\triangle.slang&quot; -target spirv -profile spirv_1_5 -matrix-layout-row-major -o &quot;$(MSBuildProjectDirectory)\..\shaders\triangle.spv&quot;" />
+    <Exec Command="&quot;$(VULKAN_SDK)\Bin\slangc.exe&quot; &quot;$(MSBuildProjectDirectory)\..\shaders\cull.slang&quot; -target spirv -profile spirv_1_5 -matrix-layout-row-major -o &quot;$(MSBuildProjectDirectory)\..\shaders\cull.spv&quot;" />
+    <Exec Command="&quot;$(VULKAN_SDK)\Bin\slangc.exe&quot; &quot;$(MSBuildProjectDirectory)\..\shaders\hiz.slang&quot; -target spirv -profile spirv_1_5 -matrix-layout-row-major -o &quot;$(MSBuildProjectDirectory)\..\shaders\hiz.spv&quot;" />
+    <Exec Command="&quot;$(VULKAN_SDK)\Bin\slangc.exe&quot; &quot;$(MSBuildProjectDirectory)\..\shaders\static.slang&quot; -target spirv -profile spirv_1_5 -matrix-layout-row-major -o &quot;$(MSBuildProjectDirectory)\..\shaders\static.spv&quot;" />
+  </Target>
+
+  <!-- The committed .spv is copied next to the binary so the renderer can load it. -->
   <ItemGroup>
     <None Include="..\shaders\triangle.spv" Link="shaders\triangle.spv">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\shaders\cull.spv" Link="shaders\cull.spv">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\shaders\hiz.spv" Link="shaders\hiz.spv">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\shaders\static.spv" Link="shaders\static.spv">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>

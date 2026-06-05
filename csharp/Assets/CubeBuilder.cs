@@ -16,7 +16,6 @@ struct Bone
 
 static class CubeBuilder
 {
-    // ---- matrix helpers ----
     // GLM is col-major/col-vector (M*v); System.Numerics is row-major/row-vector (v*M). M_sn = M_glm^T,
     // so every GLM product is REVERSED and each factor uses its Create* equivalent (which is its transpose).
 
@@ -179,6 +178,25 @@ static class CubeBuilder
 
         foreach (var node in model.Outliner)
             Walk(node, Matrix4x4.Identity, 0);
+    }
+
+    // Bind-pose bounding sphere (model space) for frustum culling: pose each vertex by its bone's
+    // bind matrix (matches how the shader skins at rest), then fit a sphere. Padded for animation.
+    public static void ComputeBounds(List<Vertex> verts, List<Bone> bones, out Vector3 center, out float radius)
+    {
+        if (verts.Count == 0) { center = Vector3.Zero; radius = 0f; return; }
+        Vector3 min = new(float.MaxValue), max = new(float.MinValue);
+        foreach (var v in verts)
+        {
+            Vector3 p = Vector3.Transform(v.Pos, bones[(int)v.BoneIndex].BindMatrix);
+            min = Vector3.Min(min, p);
+            max = Vector3.Max(max, p);
+        }
+        center = (min + max) * 0.5f;
+        float r2 = 0f;
+        foreach (var v in verts)
+            r2 = MathF.Max(r2, Vector3.DistanceSquared(center, Vector3.Transform(v.Pos, bones[(int)v.BoneIndex].BindMatrix)));
+        radius = MathF.Sqrt(r2) * 1.3f;   // padding for animation moving verts past the bind pose
     }
 
     // A bone's animated LOCAL transform. glm T(origin+animPos)*R*S*T(-origin) -> reversed.

@@ -28,6 +28,7 @@ unsafe class GpuDevice : IDisposable
     public uint PresentFamily = uint.MaxValue;
     public uint MaxBindlessTextures;
     public KhrSwapchain KhrSwapchain = null!;
+    public GpuAllocator Allocator = null!;
 
     static readonly string[] DeviceExtensions = { KhrSwapchain.ExtensionName };
 
@@ -40,9 +41,9 @@ unsafe class GpuDevice : IDisposable
         CreateLogicalDevice();
         if (!Vk.TryGetDeviceExtension(instance.Instance, Device, out KhrSwapchain))
             throw new Exception("VK_KHR_swapchain not available");
+        Allocator = new GpuAllocator(Vk, Device);
     }
 
-    // ---- queue families ----
     (uint? graphics, uint? present) FindQueueFamilies(PhysicalDevice dev)
     {
         uint count = 0;
@@ -190,7 +191,6 @@ unsafe class GpuDevice : IDisposable
         Vk.GetDeviceQueue(Device, PresentFamily, 0, out PresentQueue);
     }
 
-    // ---- hand-rolled memory ----
     public uint FindMemoryType(uint typeFilter, MemoryPropertyFlags props)
     {
         Vk.GetPhysicalDeviceMemoryProperties(Physical, out var memProps);
@@ -201,8 +201,19 @@ unsafe class GpuDevice : IDisposable
         throw new Exception("no suitable memory type");
     }
 
+    // Highest sample count supported for BOTH color and depth framebuffers (capped at 8x).
+    public SampleCountFlags GetMaxUsableSampleCount()
+    {
+        Vk.GetPhysicalDeviceProperties(Physical, out var props);
+        var counts = props.Limits.FramebufferColorSampleCounts & props.Limits.FramebufferDepthSampleCounts;
+        if ((counts & SampleCountFlags.Count8Bit) != 0) return SampleCountFlags.Count8Bit;
+        if ((counts & SampleCountFlags.Count4Bit) != 0) return SampleCountFlags.Count4Bit;
+        if ((counts & SampleCountFlags.Count2Bit) != 0) return SampleCountFlags.Count2Bit;
+        return SampleCountFlags.Count1Bit;
+    }
+
     public void CreateImage(uint w, uint h, uint mipLevels, Format format, ImageUsageFlags usage,
-        out Image image, out DeviceMemory memory)
+        out Image image, out Allocation memory, SampleCountFlags samples = SampleCountFlags.Count1Bit)
     {
         var info = new ImageCreateInfo
         {
@@ -215,20 +226,14 @@ unsafe class GpuDevice : IDisposable
             Tiling = ImageTiling.Optimal,
             InitialLayout = ImageLayout.Undefined,
             Usage = usage,
-            Samples = SampleCountFlags.Count1Bit,
+            Samples = samples,
             SharingMode = SharingMode.Exclusive
         };
         VkCheck.Check(Vk.CreateImage(Device, in info, null, out image), "vkCreateImage");
 
         Vk.GetImageMemoryRequirements(Device, image, out var req);
-        var alloc = new MemoryAllocateInfo
-        {
-            SType = StructureType.MemoryAllocateInfo,
-            AllocationSize = req.Size,
-            MemoryTypeIndex = FindMemoryType(req.MemoryTypeBits, MemoryPropertyFlags.DeviceLocalBit)
-        };
-        VkCheck.Check(Vk.AllocateMemory(Device, in alloc, null, out memory), "vkAllocateMemory(image)");
-        Vk.BindImageMemory(Device, image, memory, 0);
+        memory = Allocator.Allocate(req.Size, req.Alignment, FindMemoryType(req.MemoryTypeBits, MemoryPropertyFlags.DeviceLocalBit));
+        Vk.BindImageMemory(Device, image, memory.MemOrigin, memory.MemOffset);
     }
 
     public void UploadToBuffer<T>(GpuBuffer dst, ReadOnlySpan<T> data) where T : unmanaged
@@ -278,5 +283,9 @@ unsafe class GpuDevice : IDisposable
         Vk.DestroyCommandPool(Device, pool, null);
     }
 
-    public void Dispose() => Vk.DestroyDevice(Device, null);
+    public void Dispose()
+    {
+        Allocator.Dispose();   // free all blocks before the device goes away
+        Vk.DestroyDevice(Device, null);
+    }
 }

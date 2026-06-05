@@ -2,7 +2,7 @@ namespace IdleL.Molang;
 
 // Pratt / precedence-climbing parser. Turns a token list into an AST (Node).
 // Grammar (low -> high precedence):
-//   program : ternary (';' ternary)*        -- ';' sequence, value = last (no assignment in this dialect)
+//   program : ternary (';' ternary)*        ';' sequence, keeps the last (no assignment in this dialect)
 //   ternary : expr ('?' ternary ':' ternary)?
 //   expr    : unary (binop unary)*           -- precedence climbing
 //   unary   : ('-' | '!') unary | primary

@@ -26,13 +26,25 @@ unsafe class Mesh : IDisposable
         device.UploadToBuffer(indexBuffer, indices);
     }
 
-    public void Draw(CommandBuffer cmd)
+    public uint IndexCount => indexCount;
+
+    public void Draw(CommandBuffer cmd, uint instanceCount, uint firstInstance)
     {
         var vb = vertexBuffer.Handle;
         ulong offset = 0;
         vk.CmdBindVertexBuffers(cmd, 0, 1, in vb, in offset);
         vk.CmdBindIndexBuffer(cmd, indexBuffer.Handle, 0, IndexType.Uint32);
-        vk.CmdDrawIndexed(cmd, indexCount, 1, 0, 0, 0);
+        vk.CmdDrawIndexed(cmd, indexCount, instanceCount, 0, 0, firstInstance);   // firstInstance = base of SV_InstanceID
+    }
+
+    // bind + one indirect draw; the GPU-filled command supplies instanceCount (count decided by the cull compute)
+    public void DrawIndirect(CommandBuffer cmd, Silk.NET.Vulkan.Buffer indirect, ulong offset)
+    {
+        var vb = vertexBuffer.Handle;
+        ulong vbOffset = 0;
+        vk.CmdBindVertexBuffers(cmd, 0, 1, in vb, in vbOffset);
+        vk.CmdBindIndexBuffer(cmd, indexBuffer.Handle, 0, IndexType.Uint32);
+        vk.CmdDrawIndexedIndirect(cmd, indirect, offset, 1, (uint)sizeof(DrawIndexedIndirectCommand));
     }
 
     public void Dispose()

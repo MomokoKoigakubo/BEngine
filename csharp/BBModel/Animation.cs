@@ -25,7 +25,7 @@ class Animation
     public string Name = "";
     public LoopMode Loop = LoopMode.Loop;
     public float Length;
-    public List<BoneAnimator> Animators = new();   // (C++ called this 'animations' — renamed for clarity)
+    public List<BoneAnimator> Animators = new();   // (C++ called this 'animations', renamed for clarity)
 
     // uuid -> animator lookup, built once on first use and cached so the sampler doesn't rebuild
     // a Dictionary every frame.

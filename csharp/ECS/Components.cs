@@ -20,3 +20,10 @@ struct MeshRenderable
 {
     public MeshHandle Mesh;
 }
+
+// Model-space bounding sphere, for frustum culling. Set when the entity is spawned.
+struct Bounds
+{
+    public Vector3 Center;
+    public float Radius;
+}

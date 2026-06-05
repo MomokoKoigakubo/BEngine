@@ -10,16 +10,17 @@ struct VertexInput
 struct VertexOutput
 {
 	float4 sv_position : SV_Position;
-	float3 normal : NORMAL;          // world-space (model transform baked in cubeBuilder)
+	float3 normal : NORMAL;          // world-space
 	float2 uv : TEXCOORD0;
 	nointerpolation float texIndex : TEXCOORD1;
 };
 
 struct PushConstants
 {
-	float4x4 mvp;
-	float time; //seconds > derived pertext
-	uint boneBase; //base index into the bone buffer for this frame-in-flight's region
+	float4x4 viewProj;  // per-instance model now comes from instanceModels[], so only view*proj is pushed
+	float time;         // seconds > derived pertext
+	uint boneBase;      // base index into the bone buffer for this frame-in-flight's region
+	uint instanceBase;  // base index into the instance buffer. SV_InstanceID is 0-based (HLSL), so we add this ourselves
 };
 [[vk::push_constant]] PushConstants pc;
 
@@ -36,14 +37,22 @@ struct FlipbookParam
 // binding 2 = one float4x4 per bone (skinning). Bind-pose matrices render identical.
 [[vk::binding(2)]] StructuredBuffer<float4x4> boneMatrices;
 
+// binding 3 = one float4x4 model transform per instance, indexed by SV_InstanceID.
+[[vk::binding(3)]] StructuredBuffer<float4x4> instanceModels;
+
 [shader("vertex")]
-VertexOutput vertMain(VertexInput input)
+VertexOutput vertMain(VertexInput input, uint instanceId : SV_InstanceID)
 {
 	VertexOutput output;
-	uint bi = pc.boneBase + uint(input.boneIndex);   // index into this frame's bone region
-	float4 world = mul(boneMatrices[bi], float4(input.pos, 1.0));   // skin: bone matrix applies the group hierarchy
-	output.sv_position = mul(pc.mvp, world);
-	output.normal = mul((float3x3)boneMatrices[bi], input.normal); // rotate the normal by the bone too
+	uint bi = pc.boneBase + uint(input.boneIndex);              // index into this frame's bone region
+	// Row-vector convention (matches System.Numerics, row-major layout): v * bone * instance * viewProj,
+	// read left-to-right. No transpose anywhere — the matrix here IS the matrix in C#.
+	uint ii = pc.instanceBase + instanceId;                          // absolute slot (SV_InstanceID is 0-based per draw)
+	float4 skinned = mul(float4(input.pos, 1.0), boneMatrices[bi]);   // skin: bone matrix applies the group hierarchy
+	float4 world   = mul(skinned, instanceModels[ii]);               // place this instance in the world
+	output.sv_position = mul(world, pc.viewProj);
+	float3 n = mul(input.normal, (float3x3)boneMatrices[bi]);        // rotate the normal by the bone...
+	output.normal = mul(n, (float3x3)instanceModels[ii]);            // ...then by the instance transform
 	output.uv = input.uv;
 	output.texIndex = input.texIndex;
 	return output;
@@ -54,7 +63,7 @@ float4 fragMain(VertexOutput input) : SV_Target
 {
 	int idx = int(input.texIndex);
 
-	FlipbookParam fb = flipbooks[idx]; 
+	FlipbookParam fb = flipbooks[idx];
 	// flipbook: remap V into the current frame's band (flipCount=1 -> unchanged)
 	float2 uv = input.uv;
 	if (fb.frameCount > 1.0)

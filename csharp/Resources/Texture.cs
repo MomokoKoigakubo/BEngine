@@ -10,7 +10,7 @@ unsafe class Texture : IDisposable
     readonly Vk vk;
     readonly GpuDevice device;
     Image image;
-    DeviceMemory memory;
+    Allocation memory;
     public ImageView View;
     public Sampler Sampler;
     public int Width;
@@ -40,7 +40,7 @@ unsafe class Texture : IDisposable
             // 1. UNDEFINED -> TRANSFER_DST (whole chain)
             Barrier(cmd, ImageLayout.Undefined, ImageLayout.TransferDstOptimal,
                 PipelineStageFlags2.TopOfPipeBit, AccessFlags2.None,
-                PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit, 0, mipLevels);
+                PipelineStageFlags2.AllTransferBit, AccessFlags2.TransferWriteBit, 0, mipLevels);
 
             // 2. copy staging -> mip 0
             var region = new BufferImageCopy
@@ -55,7 +55,7 @@ unsafe class Texture : IDisposable
             for (uint i = 1; i < mipLevels; i++)
             {
                 Barrier(cmd, ImageLayout.TransferDstOptimal, ImageLayout.TransferSrcOptimal,
-                    PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit,
+                    PipelineStageFlags2.AllTransferBit, AccessFlags2.TransferWriteBit,
                     PipelineStageFlags2.BlitBit, AccessFlags2.TransferReadBit, i - 1, 1);
 
                 var blit = new ImageBlit
@@ -80,7 +80,7 @@ unsafe class Texture : IDisposable
 
             // last level: TRANSFER_DST -> SHADER_READ
             Barrier(cmd, ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal,
-                PipelineStageFlags2.CopyBit, AccessFlags2.TransferWriteBit,
+                PipelineStageFlags2.AllTransferBit, AccessFlags2.TransferWriteBit,
                 PipelineStageFlags2.FragmentShaderBit, AccessFlags2.ShaderReadBit, mipLevels - 1, 1);
         });
 
@@ -141,6 +141,6 @@ unsafe class Texture : IDisposable
         vk.DestroySampler(device.Device, Sampler, null);
         vk.DestroyImageView(device.Device, View, null);
         vk.DestroyImage(device.Device, image, null);
-        vk.FreeMemory(device.Device, memory, null);
+        device.Allocator.Free(memory);
     }
 }

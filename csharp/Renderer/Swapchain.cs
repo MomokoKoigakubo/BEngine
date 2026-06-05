@@ -18,20 +18,28 @@ unsafe class Swapchain : IDisposable
     public Extent2D Extent;
     public Format ImageFormat;
     public Format DepthFormat = Format.D32Sfloat;
-    public Image DepthImage;
-    public ImageView DepthView;
-    DeviceMemory depthMemory;
+    // one depth target per swapchain image so frames in flight don't share (and race) a single depth buffer
+    public Image[] DepthImages = Array.Empty<Image>();
+    public ImageView[] DepthViews = Array.Empty<ImageView>();
+    Allocation[] depthMemories = Array.Empty<Allocation>();
+
+    public SampleCountFlags Samples = SampleCountFlags.Count1Bit;
+    public Image[] ColorImages = Array.Empty<Image>();        // multisampled render targets (per image), only when Samples != 1
+    public ImageView[] ColorViews = Array.Empty<ImageView>();
+    Allocation[] colorMemories = Array.Empty<Allocation>();
 
     public uint ImageCount => (uint)Images.Length;
 
-    public Swapchain(GpuDevice device, Surface surface, IWindow window)
+    public Swapchain(GpuDevice device, Surface surface, IWindow window, SampleCountFlags samples)
     {
         this.device = device;
         this.surface = surface;
         this.window = window;
+        Samples = samples;
         vk = device.Vk;
         CreateSwapchain();
         CreateImageViews();
+        CreateColorResources();
         CreateDepthResources();
     }
 
@@ -127,20 +135,51 @@ unsafe class Swapchain : IDisposable
         }
     }
 
+    // Multisampled color render target (resolved to the swapchain image at end-of-pass). Skipped
+    // entirely when MSAA is off, then we render straight into the swapchain image.
+    void CreateColorResources()
+    {
+        if (Samples == SampleCountFlags.Count1Bit) return;
+        int n = Images.Length;
+        ColorImages = new Image[n];
+        ColorViews = new ImageView[n];
+        colorMemories = new Allocation[n];
+        for (int i = 0; i < n; i++)
+        {
+            device.CreateImage(Extent.Width, Extent.Height, 1, ImageFormat,
+                ImageUsageFlags.ColorAttachmentBit, out ColorImages[i], out colorMemories[i], Samples);
+            var view = new ImageViewCreateInfo
+            {
+                SType = StructureType.ImageViewCreateInfo,
+                Image = ColorImages[i],
+                ViewType = ImageViewType.Type2D,
+                Format = ImageFormat,
+                SubresourceRange = new ImageSubresourceRange(ImageAspectFlags.ColorBit, 0, 1, 0, 1)
+            };
+            VkCheck.Check(vk.CreateImageView(device.Device, in view, null, out ColorViews[i]), "msaa color view");
+        }
+    }
+
     void CreateDepthResources()
     {
-        device.CreateImage(Extent.Width, Extent.Height, 1, DepthFormat,
-            ImageUsageFlags.DepthStencilAttachmentBit, out DepthImage, out depthMemory);
-
-        var view = new ImageViewCreateInfo
+        int n = Images.Length;
+        DepthImages = new Image[n];
+        DepthViews = new ImageView[n];
+        depthMemories = new Allocation[n];
+        for (int i = 0; i < n; i++)
         {
-            SType = StructureType.ImageViewCreateInfo,
-            Image = DepthImage,
-            ViewType = ImageViewType.Type2D,
-            Format = DepthFormat,
-            SubresourceRange = new ImageSubresourceRange(ImageAspectFlags.DepthBit, 0, 1, 0, 1)
-        };
-        VkCheck.Check(vk.CreateImageView(device.Device, in view, null, out DepthView), "depth view");
+            device.CreateImage(Extent.Width, Extent.Height, 1, DepthFormat,
+                ImageUsageFlags.DepthStencilAttachmentBit | ImageUsageFlags.SampledBit, out DepthImages[i], out depthMemories[i], Samples);
+            var view = new ImageViewCreateInfo
+            {
+                SType = StructureType.ImageViewCreateInfo,
+                Image = DepthImages[i],
+                ViewType = ImageViewType.Type2D,
+                Format = DepthFormat,
+                SubresourceRange = new ImageSubresourceRange(ImageAspectFlags.DepthBit, 0, 1, 0, 1)
+            };
+            VkCheck.Check(vk.CreateImageView(device.Device, in view, null, out DepthViews[i]), "depth view");
+        }
     }
 
     public void Recreate()
@@ -152,14 +191,25 @@ unsafe class Swapchain : IDisposable
         Cleanup();
         CreateSwapchain();
         CreateImageViews();
+        CreateColorResources();
         CreateDepthResources();
     }
 
     void Cleanup()
     {
-        vk.DestroyImageView(device.Device, DepthView, null);
-        vk.DestroyImage(device.Device, DepthImage, null);
-        vk.FreeMemory(device.Device, depthMemory, null);
+        for (int i = 0; i < DepthImages.Length; i++)
+        {
+            vk.DestroyImageView(device.Device, DepthViews[i], null);
+            vk.DestroyImage(device.Device, DepthImages[i], null);
+            device.Allocator.Free(depthMemories[i]);
+        }
+        if (Samples != SampleCountFlags.Count1Bit)
+            for (int i = 0; i < ColorImages.Length; i++)
+            {
+                vk.DestroyImageView(device.Device, ColorViews[i], null);
+                vk.DestroyImage(device.Device, ColorImages[i], null);
+                device.Allocator.Free(colorMemories[i]);
+            }
         foreach (var v in ImageViews) vk.DestroyImageView(device.Device, v, null);
         device.KhrSwapchain.DestroySwapchain(device.Device, Handle, null);
     }

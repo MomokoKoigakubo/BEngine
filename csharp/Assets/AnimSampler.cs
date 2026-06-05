@@ -57,7 +57,7 @@ static class AnimSampler
                              + (-p0 + 3f * p1 - 3f * p2 + p3) * t3);
             }
 
-            case Interp.Bezier:   // TODO: real cubic bezier with per-axis handles; linear for now
+            case Interp.Bezier:   // TODO: real cubic bezier with per-axis handles; linear for now, maybe we want it maybe not TBD
             case Interp.Linear:
             default:
                 return b + (a - b) * t;
