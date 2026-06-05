@@ -4,6 +4,7 @@ struct VertexInput
 	[[vk::location(1)]] float3 normal;
 	[[vk::location(2)]] float2 uv;
 	[[vk::location(3)]] float texIndex;
+	[[vk::location(4)]] float boneIndex;
 };
 
 struct VertexOutput
@@ -18,6 +19,7 @@ struct PushConstants
 {
 	float4x4 mvp;
 	float time; //seconds > derived pertext
+	uint boneBase; //base index into the bone buffer for this frame-in-flight's region
 };
 [[vk::push_constant]] PushConstants pc;
 
@@ -31,12 +33,17 @@ struct FlipbookParam
 };
 [[vk::binding(1)]] StructuredBuffer<FlipbookParam> flipbooks;
 
+// binding 2 = one float4x4 per bone (skinning). Bind-pose matrices render identical.
+[[vk::binding(2)]] StructuredBuffer<float4x4> boneMatrices;
+
 [shader("vertex")]
 VertexOutput vertMain(VertexInput input)
 {
 	VertexOutput output;
-	output.sv_position = mul(pc.mvp, float4(input.pos, 1.0));
-	output.normal = input.normal;
+	uint bi = pc.boneBase + uint(input.boneIndex);   // index into this frame's bone region
+	float4 world = mul(boneMatrices[bi], float4(input.pos, 1.0));   // skin: bone matrix applies the group hierarchy
+	output.sv_position = mul(pc.mvp, world);
+	output.normal = mul((float3x3)boneMatrices[bi], input.normal); // rotate the normal by the bone too
 	output.uv = input.uv;
 	output.texIndex = input.texIndex;
 	return output;

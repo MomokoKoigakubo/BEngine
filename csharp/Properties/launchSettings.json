@@ -1,0 +1,11 @@
+{
+  "profiles": {
+    "Tests": {
+      "commandName": "Project"
+    },
+    "App": {
+      "commandName": "Project",
+      "commandLineArgs": "app"
+    }
+  }
+}
